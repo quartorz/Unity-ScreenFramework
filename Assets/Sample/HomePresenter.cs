@@ -5,19 +5,20 @@ using UnityEngine;
 
 namespace Sample
 {
-	public sealed class HomePresenter : ScreenPresenter<MockView.Sample.IHomeView>
+	public sealed class HomePresenter
+		: ScreenPresenter<MockView.Sample.IHomeViewInput, MockView.Sample.IHomeViewOutput>
 	{
 		protected override UniTask OnAfterLoad(IScreenDataReader reader, CancellationToken ct)
 		{
-			View.SetTitle("Home Screen");
-			View.OnGoDetailClicked += OnGoDetail;
+			Out.SetTitle("Home Screen");
+			In.OnGoDetailClicked += OnGoDetail;
 			Debug.Log("[HomePresenter] OnAfterLoad");
 			return UniTask.CompletedTask;
 		}
 
 		protected override UniTask OnAfterUnload(IScreenDataWriter writer, CancellationToken ct)
 		{
-			if (View != null) View.OnGoDetailClicked -= OnGoDetail;
+			if (In != null) In.OnGoDetailClicked -= OnGoDetail;
 			Debug.Log("[HomePresenter] OnAfterUnload");
 			return UniTask.CompletedTask;
 		}
@@ -28,22 +29,23 @@ namespace Sample
 		}
 	}
 
-	public sealed class DetailPresenter : ScreenPresenter<MockView.Sample.IDetailView>
+	public sealed class DetailPresenter
+		: ScreenPresenter<MockView.Sample.IDetailViewInput, MockView.Sample.IDetailViewOutput>
 	{
 		readonly string _userId;
 		public DetailPresenter(string userId) { _userId = userId; }
 
 		protected override UniTask OnAfterLoad(IScreenDataReader reader, CancellationToken ct)
 		{
-			View.SetUserId(_userId);
-			View.OnBackClicked += OnBack;
+			Out.SetUserId(_userId);
+			In.OnBackClicked += OnBack;
 			Debug.Log($"[DetailPresenter] OnAfterLoad UserId={_userId}");
 			return UniTask.CompletedTask;
 		}
 
 		protected override UniTask OnAfterUnload(IScreenDataWriter writer, CancellationToken ct)
 		{
-			if (View != null) View.OnBackClicked -= OnBack;
+			if (In != null) In.OnBackClicked -= OnBack;
 			Debug.Log("[DetailPresenter] OnAfterUnload");
 			return UniTask.CompletedTask;
 		}

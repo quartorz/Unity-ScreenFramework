@@ -164,7 +164,7 @@ namespace Tests
 		}
 
 		// 「OnAfterLoad で text != null なら SetResult し、その後すぐ閉じる」挙動
-		sealed class EchoDialogPresenter : DialogPresenter<object, EchoResult>
+		sealed class EchoDialogPresenter : DialogPresenter<object, object, EchoResult>
 		{
 			readonly string _text;
 			public EchoDialogPresenter(string text) { _text = text; }

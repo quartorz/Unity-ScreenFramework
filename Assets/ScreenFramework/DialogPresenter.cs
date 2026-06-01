@@ -11,8 +11,9 @@ namespace ScreenFramework
 	/// 対応する Identifier は <see cref="ScreenIdentifier{TResult}"/>。
 	/// 結果未確定（SetResult 未呼び）のまま閉じられた場合、PushAndAwait は default(TResult) を返す。
 	/// </summary>
-	public abstract class DialogPresenter<TView, TResult> : ScreenPresenter<TView>
-		where TView : class
+	public abstract class DialogPresenter<TInput, TOutput, TResult> : ScreenPresenter<TInput, TOutput>
+		where TInput : class
+		where TOutput : class
 		where TResult : IScreenData
 	{
 		TResult _result;

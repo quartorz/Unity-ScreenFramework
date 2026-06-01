@@ -16,16 +16,25 @@ namespace ScreenFramework
 		UniTask OnAfterUnload(IScreenDataWriter writer, CancellationToken ct) => UniTask.CompletedTask;
 	}
 
-	public abstract class ScreenPresenter<TView> : IScreenPresenter where TView : class
+	/// <summary>
+	/// View を Input / Output で分離して保持する Presenter 基底。
+	/// Presenter は <see cref="In"/> から購読・読み取り、<see cref="Out"/> へ呼び出し・書き込み。
+	/// MockGenerator が生成する IXxxInput / IXxxOutput を TInput / TOutput に指定する想定。
+	/// </summary>
+	public abstract class ScreenPresenter<TInput, TOutput> : IScreenPresenter
+		where TInput : class
+		where TOutput : class
 	{
-		protected TView View { get; private set; }
+		protected TInput  In  { get; private set; }
+		protected TOutput Out { get; private set; }
 
 		UniTask IScreenPresenter.OnBeforeLoad(IScreenDataReader reader, CancellationToken ct)
 			=> OnBeforeLoad(reader, ct);
 
 		UniTask IScreenPresenter.OnAfterLoad(IScreenViewInstance view, IScreenDataReader reader, CancellationToken ct)
 		{
-			View = view.As<TView>();
+			In  = view.As<TInput>();
+			Out = view.As<TOutput>();
 			return OnAfterLoad(reader, ct);
 		}
 

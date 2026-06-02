@@ -37,11 +37,26 @@ namespace ScreenFramework
 		// 公開 API
 		// ===========================================================================
 
-		public UniTask Push(IScreenIdentifier id, PushOptions opt = default, CancellationToken ct = default)
+		public async UniTask<IScreenEntry> Push(IScreenIdentifier id, PushOptions opt = default, CancellationToken ct = default)
 		{
 			if (id == null) throw new ArgumentNullException(nameof(id));
-			return Run(opt.InterruptPriority, ct, async myCt =>
-				await PushCore(id, opt, resultSource: null, myCt));
+			LiveEntry created = null;
+			await Run(opt.InterruptPriority, ct, async myCt =>
+			{
+				created = await PushCore(id, opt, resultSource: null, myCt);
+			});
+			return created != null ? new ScreenEntry(this, created.Presenter) : null;
+		}
+
+		public IScreenEntry FindEntry<TPresenter>() where TPresenter : class, IScreenPresenter
+		{
+			for (var i = _live.Count - 1; i >= 0; i--)
+			{
+				var e = _live[i];
+				if (e != null && e.Presenter is TPresenter)
+					return new ScreenEntry(this, e.Presenter);
+			}
+			return null;
 		}
 
 		public async UniTask<TResult> PushAndAwait<TResult>(ScreenIdentifier<TResult> id, PushOptions opt = default, CancellationToken ct = default)
@@ -54,7 +69,9 @@ namespace ScreenFramework
 
 			// Push 自体は通常通り Run。tcs を PushCore に持ち込んで entry.ResultSource に貼る。
 			await Run(opt.InterruptPriority, ct, async myCt =>
-				await PushCore(id, opt, resultSource: tcs, myCt));
+			{
+				await PushCore(id, opt, resultSource: tcs, myCt);
+			});
 
 			// 自分のエントリが閉じるのを待つ。preempt/DismissAll/Reset/Change で死んだら
 			// TrySetCanceled されて OperationCanceledException で抜ける。
@@ -66,6 +83,25 @@ namespace ScreenFramework
 		{
 			return Run(opt.InterruptPriority, ct, async myCt =>
 				await PopCore(opt, myCt));
+		}
+
+		public UniTask Close(IScreenPresenter target, PopOptions opt = default, CancellationToken ct = default)
+		{
+			if (target == null) throw new ArgumentNullException(nameof(target));
+			// 所有を Run の外でチェック。所有していなければ完全に no-op で抜ける
+			// （他レイヤー経由の Close 呼び出しでこの navigator の進行中遷移を巻き込まないため）。
+			if (!Owns(target)) return UniTask.CompletedTask;
+			return Run(opt.InterruptPriority, ct, async myCt =>
+				await CloseCore(target, opt, myCt));
+		}
+
+		bool Owns(IScreenPresenter target)
+		{
+			for (var i = 0; i < _live.Count; i++)
+			{
+				if (_live[i] != null && ReferenceEquals(_live[i].Presenter, target)) return true;
+			}
+			return false;
 		}
 
 		public UniTask Replace(IScreenIdentifier id, ReplaceOptions opt = default, CancellationToken ct = default)
@@ -205,7 +241,7 @@ namespace ScreenFramework
 		// 各操作のコア（ロールバック可能ゾーン / 完走必須ゾーンを意識）
 		// ===========================================================================
 
-		async UniTask PushCore(IScreenIdentifier id, PushOptions opt, UniTaskCompletionSource<IScreenDataReader> resultSource, CancellationToken ct)
+		async UniTask<LiveEntry> PushCore(IScreenIdentifier id, PushOptions opt, UniTaskCompletionSource<IScreenDataReader> resultSource, CancellationToken ct)
 		{
 			var from = Current;
 			FireStart(from, id, ScreenTransitionKind.Push);
@@ -270,6 +306,7 @@ namespace ScreenFramework
 			{
 				FireEnd(from, Current, ScreenTransitionKind.Push);
 			}
+			return entry;
 		}
 
 		async UniTask PopCore(PopOptions opt, CancellationToken ct)
@@ -326,6 +363,102 @@ namespace ScreenFramework
 				await below.Presenter.OnBeforeEnter(returnStore, safeCt);
 				await RunEnterAsync(below, transition, safeCt, playViewEnter: belowReappears);
 				await below.Presenter.OnAfterEnter(EmptyScreenDataReader.Instance, safeCt);
+			}
+			finally
+			{
+				FireEnd(from, Current, ScreenTransitionKind.Pop);
+			}
+		}
+
+		async UniTask CloseCore(IScreenPresenter target, PopOptions opt, CancellationToken ct)
+		{
+			var idx = -1;
+			for (var i = 0; i < _live.Count; i++)
+			{
+				if (_live[i] != null && ReferenceEquals(_live[i].Presenter, target)) { idx = i; break; }
+			}
+			if (idx < 0) return; // 既に閉じられている / まだスタックにない
+
+			// top なら Pop と同じ流れ（下を Enter させる）。
+			// ただし Pop の "履歴が 1 枚なら何もしない" ガードは Close では適用しない。
+			if (idx == _live.Count - 1)
+			{
+				await CloseTopAsync(opt, ct);
+				return;
+			}
+
+			// 中間：黙って消す（transition なし、上の画面は触らない）
+			var entry = _live[idx];
+			var safeCt = CancellationToken.None;
+			var returnStore = new ScreenDataStore();
+			await ExitPreviousAsync(entry, ScreenCacheMode.DestroyOnCover, isPop: true, safeCt, returnStore, isNormalPop: true);
+			DestroyBlockerIfAny(entry);
+			_live.RemoveAt(idx);
+			_history.RemoveAtInternal(idx);
+		}
+
+		/// <summary>
+		/// 現在の top を閉じる。下があれば Pop と同じ流れで Enter させる。
+		/// 下がなくても閉じる（Pop と違ってガードなし）。
+		/// </summary>
+		async UniTask CloseTopAsync(PopOptions opt, CancellationToken ct)
+		{
+			if (_live.Count == 0) return;
+
+			var from = Current;
+			var to = _history.Count >= 2 ? _history[_history.Count - 2] : null;
+			FireStart(from, to, ScreenTransitionKind.Pop);
+
+			var safeCt = CancellationToken.None;
+			try
+			{
+				var director = opt.TransitionDirector ?? _config.DefaultTransition;
+				var transition = director?.CreateHandle();
+				if (transition != null) await transition.Start(safeCt);
+
+				var top = _live[_live.Count - 1];
+				var returnStore = new ScreenDataStore();
+				await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: true, safeCt, returnStore, isNormalPop: true);
+				DestroyBlockerIfAny(top);
+				_live.RemoveAt(_live.Count - 1);
+				_history.PopCurrent();
+
+				if (_live.Count > 0)
+				{
+					var belowIndex = _live.Count - 1;
+					var below = _live[belowIndex];
+					bool belowReappears;
+					if (below == null)
+					{
+						var belowId = _history[belowIndex];
+						below = await CreateAndPreloadAsync(belowId, data: null, safeCt);
+						below.View.SetParent(_config.Container.Root);
+						below.View.SetActive(true);
+						_live[belowIndex] = below;
+						belowReappears = true;
+					}
+					else if (below.Suspended)
+					{
+						below.View.SetActive(true);
+						await below.Presenter.OnResume(safeCt);
+						below.Suspended = false;
+						belowReappears = true;
+					}
+					else
+					{
+						below.View.SetActive(true);
+						belowReappears = false;
+					}
+
+					await below.Presenter.OnBeforeEnter(returnStore, safeCt);
+					await RunEnterAsync(below, transition, safeCt, playViewEnter: belowReappears);
+					await below.Presenter.OnAfterEnter(EmptyScreenDataReader.Instance, safeCt);
+				}
+				else if (transition != null)
+				{
+					// 下が無い：transition だけ完走させる
+					await transition.End(safeCt);
+				}
 			}
 			finally
 			{
@@ -397,6 +530,7 @@ namespace ScreenFramework
 		async UniTask<LiveEntry> CreateAndPreloadAsync(IScreenIdentifier id, IScreenData data, CancellationToken ct)
 		{
 			var presenter = id.CreatePresenter(_services);
+			presenter.AssignServices(_services);
 			var handle = id.CreateHandle(_services);
 			var pushStore = new ScreenDataStore();
 			if (data != null) pushStore.WriteUntyped(data);
@@ -533,6 +667,22 @@ namespace ScreenFramework
 
 		void FireEnd(IScreenIdentifier from, IScreenIdentifier to, ScreenTransitionKind kind)
 			=> OnTransitionEnd?.Invoke(new ScreenTransitionEvent(from, to, kind));
+
+		sealed class ScreenEntry : IScreenEntry
+		{
+			readonly ScreenNavigatorImpl _nav;
+			public IScreenPresenter Presenter { get; }
+
+			public ScreenEntry(ScreenNavigatorImpl nav, IScreenPresenter presenter)
+			{
+				_nav = nav;
+				Presenter = presenter;
+			}
+
+			public bool IsAlive => _nav.Owns(Presenter);
+			public UniTask Close(PopOptions opt = default, CancellationToken ct = default)
+				=> _nav.Close(Presenter, opt, ct);
+		}
 
 		sealed class LiveEntry
 		{

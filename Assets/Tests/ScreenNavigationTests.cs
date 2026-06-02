@@ -2,6 +2,7 @@ using System.Collections;
 using Cysharp.Threading.Tasks;
 using NUnit.Framework;
 using Sample;
+using Sample.Api;
 using ScreenFramework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -17,6 +18,7 @@ namespace Tests
 		IScreenContainer _pageContainer;
 		IScreenContainer _dialogContainer;
 		IScreenContainer _systemDialogContainer;
+		MockApiClient _mockApiClient;
 
 		[SetUp]
 		public void SetUp()
@@ -24,9 +26,25 @@ namespace Tests
 			_pageContainer = NewContainer("PageRoot");
 			_dialogContainer = NewContainer("DialogRoot");
 			_systemDialogContainer = NewContainer("SystemDialogRoot");
+			_mockApiClient = new MockApiClient();
+			// Profile 画面は OnAfterLoad で GetProfile(userId, ct) を叩くので最低限のスタブを置く
+			_mockApiClient.GetProfileFunc = (userId, ct) => UniTask.FromResult(new ProfileResponse
+			{
+				userId = userId,
+				name = "test",
+				level = 1,
+			});
 
 			var services = new SampleServices(
-				useMockViews: true);
+				useMockViews: true,
+				api: _mockApiClient);
+			// HomePresenter が Services.UserData.Info.UserId を参照するので seed しておく
+			services.UserData.SetInfo(new UserInfo
+			{
+				UserId = "user-001",
+				Name = "test",
+				Level = 1,
+			});
 
 			var setup = new ScreenLayerSetup
 			{
@@ -61,13 +79,13 @@ namespace Tests
 		});
 
 		[UnityTest]
-		public IEnumerator Push_Detail_HasUserIdInIdentifier() => UniTask.ToCoroutine(async () =>
+		public IEnumerator Push_Profile_HasUserIdInIdentifier() => UniTask.ToCoroutine(async () =>
 		{
 			await ScreenNavigator.Page.Push(new HomeScreenId());
-			await ScreenNavigator.Page.Push(new DetailScreenId("abc-123"));
+			await ScreenNavigator.Page.Push(new ProfileScreenId("abc-123"));
 
 			Assert.AreEqual(2, ScreenNavigator.Page.History.Count);
-			var current = ScreenNavigator.Page.Current as DetailScreenId;
+			var current = ScreenNavigator.Page.Current as ProfileScreenId;
 			Assert.IsNotNull(current);
 			Assert.AreEqual("abc-123", current!.UserId);
 		});
@@ -76,7 +94,7 @@ namespace Tests
 		public IEnumerator Pop_AfterPush_GoesBackToHome() => UniTask.ToCoroutine(async () =>
 		{
 			await ScreenNavigator.Page.Push(new HomeScreenId());
-			await ScreenNavigator.Page.Push(new DetailScreenId("abc"));
+			await ScreenNavigator.Page.Push(new ProfileScreenId("abc"));
 			await ScreenNavigator.Page.Pop();
 
 			Assert.AreEqual(1, ScreenNavigator.Page.History.Count);
@@ -87,9 +105,9 @@ namespace Tests
 		public IEnumerator IdentifierEquality_SameParamsAreEqual() => UniTask.ToCoroutine(async () =>
 		{
 			await UniTask.CompletedTask;
-			var a = new DetailScreenId("x");
-			var b = new DetailScreenId("x");
-			var c = new DetailScreenId("y");
+			var a = new ProfileScreenId("x");
+			var b = new ProfileScreenId("x");
+			var c = new ProfileScreenId("y");
 			Assert.AreEqual(a, b);
 			Assert.AreNotEqual(a, c);
 		});
@@ -98,20 +116,20 @@ namespace Tests
 		public IEnumerator History_Edit_RemovesIntermediate() => UniTask.ToCoroutine(async () =>
 		{
 			await ScreenNavigator.Page.Push(new HomeScreenId());
-			await ScreenNavigator.Page.Push(new DetailScreenId("a"));
-			await ScreenNavigator.Page.Push(new DetailScreenId("b"));
+			await ScreenNavigator.Page.Push(new ProfileScreenId("a"));
+			await ScreenNavigator.Page.Push(new ProfileScreenId("b"));
 
 			Assert.AreEqual(3, ScreenNavigator.Page.History.Count);
 
 			ScreenNavigator.Page.History.Edit(e =>
 			{
-				e.RemoveAll(id => id is DetailScreenId { UserId: "a" });
+				e.RemoveAll(id => id is ProfileScreenId { UserId: "a" });
 			});
 
 			Assert.AreEqual(2, ScreenNavigator.Page.History.Count);
 			// Current (b) は残り、間の "a" だけが消える
 			Assert.IsInstanceOf<HomeScreenId>(ScreenNavigator.Page.History[0]);
-			var top = ScreenNavigator.Page.Current as DetailScreenId;
+			var top = ScreenNavigator.Page.Current as ProfileScreenId;
 			Assert.AreEqual("b", top!.UserId);
 		});
 

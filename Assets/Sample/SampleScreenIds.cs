@@ -1,4 +1,5 @@
 using ScreenFramework;
+using System;
 
 namespace Sample
 {
@@ -7,19 +8,25 @@ namespace Sample
 	/// </summary>
 	public static class SampleAddresses
 	{
-		public const string HomeView   = "Views/HomeView";
-		public const string DetailView = "Views/DetailView";
+		public const string TitleView   = "Views/TitleView";
+		public const string HomeView    = "Views/HomeView";
+		public const string ProfileView = "Views/ProfileView";
+		public const string InputDialog = "Views/InputDialog";
 	}
 
-	public sealed record HomeScreenId : AddressableScreenId<MockView.Sample.MockHomeView>
+	public record SampleScreenId<TMockView, TView, TPresenter> : AddressableScreenId<TMockView>
+		where TMockView : class, new()
+		where TPresenter : IScreenPresenter
 	{
-		protected override string AddressableKey => SampleAddresses.HomeView;
-		protected override IScreenPresenter MakePresenter() => new HomePresenter();
+		protected override string AddressableKey => $"Views/{typeof(TView).Name}";
+		protected override IScreenPresenter MakePresenter() => Activator.CreateInstance<TPresenter>();
 	}
 
-	public sealed record DetailScreenId(string UserId) : AddressableScreenId<MockView.Sample.MockDetailView>
+	public sealed record TitleScreenId : SampleScreenId<MockView.Sample.MockTitleView, TitleView, TitlePresenter>;
+	public sealed record HomeScreenId : SampleScreenId<MockView.Sample.MockHomeView, HomeView, HomePresenter>;
+
+	public sealed record ProfileScreenId(string UserId) : SampleScreenId<MockView.Sample.MockProfileView, ProfileView, ProfilePresenter>
 	{
-		protected override string AddressableKey => SampleAddresses.DetailView;
-		protected override IScreenPresenter MakePresenter() => new DetailPresenter(UserId);
+		protected override IScreenPresenter MakePresenter() => new ProfilePresenter(UserId);
 	}
 }

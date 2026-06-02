@@ -11,9 +11,9 @@ namespace Sample
 	public sealed partial class HomeView : MonoBehaviour
 	{
 		[SerializeField] Text _title;
-		[SerializeField] Button _goDetail;
+		[SerializeField] Button _goProfile;
 
-		[MockGenerator.Input]  public event Action OnGoDetailClicked;
+		[MockGenerator.Input]  public event Action OnGoProfileClicked;
 
 		void Awake()
 		{
@@ -27,7 +27,7 @@ namespace Sample
 			var bg = gameObject.GetComponent<Image>();
 			bg.color = new Color(0.15f, 0.30f, 0.50f, 1f);
 
-			_goDetail.onClick.AddListener(() => OnGoDetailClicked?.Invoke());
+			if (_goProfile != null) _goProfile.onClick.AddListener(() => OnGoProfileClicked?.Invoke());
 		}
 
 		[MockGenerator.Output]
@@ -35,8 +35,5 @@ namespace Sample
 		{
 			if (_title != null) _title.text = title;
 		}
-
-		//[MockGenerator.Output]
-		//public void F<T>() { }
 	}
 }

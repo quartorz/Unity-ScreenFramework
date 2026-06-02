@@ -528,6 +528,7 @@ MonoBehaviour:
   _dialogContainer: {fileID: 1910657184}
   _sysDialogContainer: {fileID: 799231057}
   _fadeOverlayParent: {fileID: 1013981120}
+  _startWithProfile: 0
 --- !u!4 &2052501343
 Transform:
   m_ObjectHideFlags: 0

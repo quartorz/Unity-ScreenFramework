@@ -15,13 +15,23 @@ MonoBehaviour:
   m_GroupName: Views
   m_GUID: be0eeb7fcd5076f46a96fdfb1a388a0c
   m_SerializeEntries:
-  - m_GUID: 32951656b8c963e4fa0d8391c3857d27
-    m_Address: Views/DetailView
+  - m_GUID: 0665608428066bc43af9c5c1263cb94d
+    m_Address: Views/InputDialog
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 43d73ca15337ed948b9663f059c65a71
+    m_Address: Views/ProfileView
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 91f52e84499aeac4a9af92d7c7305f80
     m_Address: Views/HomeView
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: fd4e14c736c0b7842ac71a10d90828c6
+    m_Address: Views/TitleView
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0

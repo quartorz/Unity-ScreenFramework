@@ -1,8 +1,9 @@
 using System.Collections.Generic;
-using System.Threading;
+using System.Threading.Tasks;
 using Cysharp.Threading.Tasks;
 using NUnit.Framework;
 using Sample;
+using Sample.Api;
 using ScreenFramework;
 
 namespace Tests
@@ -16,6 +17,7 @@ namespace Tests
 	{
 		MockScreenNavigator _nav;
 		List<IScreenIdentifier> _pushedIds;
+		SampleServices _services;
 
 		[SetUp]
 		public void SetUp()
@@ -27,7 +29,7 @@ namespace Tests
 				PushFunc = (id, opt, ct) =>
 				{
 					_pushedIds.Add(id);
-					return UniTask.CompletedTask;
+					return UniTask.FromResult<IScreenEntry>(null);
 				},
 			};
 
@@ -36,54 +38,58 @@ namespace Tests
 				page: _nav,
 				dialog: new MockScreenNavigator(),
 				systemDialog: new MockScreenNavigator());
+
+			_services = new SampleServices(useMockViews: true, api: new MockApiClient());
+			_services.UserData.SetInfo(new UserInfo
+			{
+				UserId = "user-001",
+				Name = "Alice",
+				Level = 1,
+			});
 		}
 
+		HomePresenter NewPresenter() => new HomePresenter().WithServices(_services);
+
 		[Test]
-		public void OnAfterLoad_SetsTitle_OnView()
+		public async Task OnAfterLoad_SetsTitle_OnView()
 		{
 			var mockView = new MockView.Sample.MockHomeView();
 			string captured = null;
 			mockView.SetTitleFunc = title => captured = title;
 
-			var presenter = (IScreenPresenter)new HomePresenter();
-			presenter.OnAfterLoad(ScreenTesting.ViewOf(mockView), ScreenTesting.EmptyReader, CancellationToken.None)
-				.GetAwaiter().GetResult();
+			var presenter = (IScreenPresenter)NewPresenter();
+			await ScreenTesting.PushAsync(presenter, mockView);
 
 			Assert.AreEqual("Home Screen", captured);
 		}
 
 		[Test]
-		public void GoDetailClick_PushesDetailScreen_WithUserId()
+		public async Task GoProfileClick_PushesProfileScreen_WithUserIdFromServices()
 		{
 			var mockView = new MockView.Sample.MockHomeView();
 			mockView.SetTitleFunc = _ => { };
 
-			var presenter = (IScreenPresenter)new HomePresenter();
-			presenter.OnAfterLoad(ScreenTesting.ViewOf(mockView), ScreenTesting.EmptyReader, CancellationToken.None)
-				.GetAwaiter().GetResult();
+			var presenter = (IScreenPresenter)NewPresenter();
+			await ScreenTesting.PushAsync(presenter, mockView);
 
-			mockView.RaiseOnGoDetailClicked();
+			mockView.RaiseOnGoProfileClicked();
 
 			Assert.AreEqual(1, _pushedIds.Count);
-			var detail = _pushedIds[0] as DetailScreenId;
-			Assert.IsNotNull(detail);
-			Assert.AreEqual("user-001", detail.UserId);
+			var profile = _pushedIds[0] as ProfileScreenId;
+			Assert.IsNotNull(profile);
+			Assert.AreEqual("user-001", profile.UserId);
 		}
 
 		[Test]
-		public void OnAfterUnload_UnsubscribesHandler_NoFurtherPushOnRaise()
+		public async Task OnAfterUnload_UnsubscribesHandler_NoFurtherPushOnRaise()
 		{
 			var mockView = new MockView.Sample.MockHomeView();
-			mockView.SetTitleFunc = _ => { };
 
-			var presenter = (IScreenPresenter)new HomePresenter();
-			presenter.OnAfterLoad(ScreenTesting.ViewOf(mockView), ScreenTesting.EmptyReader, CancellationToken.None)
-				.GetAwaiter().GetResult();
+			var presenter = (IScreenPresenter)NewPresenter();
+			await ScreenTesting.PushAsync(presenter, mockView);
+			await ScreenTesting.PopAsync(presenter);
 
-			presenter.OnAfterUnload(ScreenTesting.NewWriter(out _), CancellationToken.None)
-				.GetAwaiter().GetResult();
-
-			mockView.RaiseOnGoDetailClicked();
+			mockView.RaiseOnGoProfileClicked();
 
 			Assert.AreEqual(0, _pushedIds.Count, "Unload 後にイベントが leak しないこと");
 		}

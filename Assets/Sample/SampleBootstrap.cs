@@ -1,4 +1,6 @@
 using Cysharp.Threading.Tasks;
+using LocalServer;
+using Sample.Api;
 using ScreenFramework;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -15,12 +17,14 @@ namespace Sample
 		[SerializeField] ScreenContainer _dialogContainer;
 		[SerializeField] ScreenContainer _sysDialogContainer;
 		[SerializeField] RectTransform _fadeOverlayParent;
+		[SerializeField] bool _startWithProfile;
 
 		async void Start()
 		{
 			EnsureEventSystem();
 
-			var services = new SampleServices(useMockViews: false);
+			var api = new HttpApiClient(ServerBoot.Instance.BaseUrl);
+			var services = new SampleServices(useMockViews: false, api: api);
 
 			var setup = new ScreenLayerSetup
 			{
@@ -55,7 +59,12 @@ namespace Sample
 
 			ScreenNavigator.Initialize(services, setup);
 
-			await ScreenNavigator.Page.Push(new HomeScreenId());
+			if (_startWithProfile)
+				// debug 用ショートカット。Title をスキップしているので UserData は空のまま。
+				// サーバ実装と一致する固定 ID をそのまま渡す。
+				await ScreenNavigator.Page.Push(new ProfileScreenId("user-001"));
+			else
+				await ScreenNavigator.Page.Push(new TitleScreenId());
 		}
 
 		static void EnsureEventSystem()

@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
+using Cysharp.Threading.Tasks;
 
 namespace ScreenFramework
 {
@@ -38,6 +40,31 @@ namespace ScreenFramework
 			if (page != null) Page = page;
 			if (dialog != null) Dialog = dialog;
 			if (systemDialog != null) SystemDialog = systemDialog;
+		}
+
+		/// <summary>
+		/// 指定 Presenter のエントリを所属レイヤーから閉じる。
+		/// どのレイヤーに属しているか呼び出し側が知らなくて済む。
+		/// 全レイヤーに対して <see cref="IScreenNavigator.Close"/> を呼び、見つからないものは no-op。
+		/// </summary>
+		public static UniTask Close(IScreenPresenter target, PopOptions opt = default, CancellationToken ct = default)
+		{
+			if (target == null) throw new ArgumentNullException(nameof(target));
+			var tasks = new List<UniTask>(3);
+			foreach (var nav in All) tasks.Add(nav.Close(target, opt, ct));
+			return UniTask.WhenAll(tasks);
+		}
+
+		/// <summary>
+		/// 全レイヤーを上から（SystemDialog → Dialog → Page）順に検索し、
+		/// <typeparamref name="TPresenter"/> 型のエントリを返す。なければ null。
+		/// </summary>
+		public static IScreenEntry FindEntry<TPresenter>() where TPresenter : class, IScreenPresenter
+		{
+			if (SystemDialog != null) { var e = SystemDialog.FindEntry<TPresenter>(); if (e != null) return e; }
+			if (Dialog       != null) { var e = Dialog      .FindEntry<TPresenter>(); if (e != null) return e; }
+			if (Page         != null) { var e = Page        .FindEntry<TPresenter>(); if (e != null) return e; }
+			return null;
 		}
 	}
 }

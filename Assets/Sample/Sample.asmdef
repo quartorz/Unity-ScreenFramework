@@ -4,7 +4,8 @@
     "references": [
         "ScreenFramework",
         "UniTask",
-        "Unity.ugui"
+        "Unity.ugui",
+        "LocalServer"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

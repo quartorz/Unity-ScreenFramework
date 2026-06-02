@@ -10,7 +10,12 @@ namespace ScreenFramework
 		IScreenIdentifier Current { get; }
 		bool IsTransitioning { get; }
 
-		UniTask Push(IScreenIdentifier id, PushOptions opt = default, CancellationToken ct = default);
+		/// <summary>
+		/// 画面を Push する。完了後、その画面のエントリを返す。
+		/// チュートリアル等で Presenter インスタンスを後から操作したい場合や、
+		/// 特定のエントリを <see cref="IScreenEntry.Close"/> で閉じたい場合に保持しておく。
+		/// </summary>
+		UniTask<IScreenEntry> Push(IScreenIdentifier id, PushOptions opt = default, CancellationToken ct = default);
 		/// <summary>
 		/// 結果を返すダイアログ向け Push。エントリが閉じるまで await される。
 		/// 結果未書き込みで閉じた場合は default(TResult)、preempt や DismissAll 等で
@@ -19,6 +24,19 @@ namespace ScreenFramework
 		UniTask<TResult> PushAndAwait<TResult>(ScreenIdentifier<TResult> id, PushOptions opt = default, CancellationToken ct = default)
 			where TResult : IScreenData;
 		UniTask Pop(PopOptions opt = default, CancellationToken ct = default);
+		/// <summary>
+		/// 指定 Presenter のエントリを閉じる。位置依存の Pop と違い参照で閉じるため、
+		/// 競合する遷移と組み合わさっても他のエントリを誤って閉じない。
+		/// 既に閉じられている / まだ Push 完了していないときは何もしない。
+		/// 履歴の最後の 1 枚でも閉じられる（Pop と違ってガードなし）。
+		/// </summary>
+		UniTask Close(IScreenPresenter target, PopOptions opt = default, CancellationToken ct = default);
+
+		/// <summary>
+		/// スタック上で <typeparamref name="TPresenter"/> 型のエントリを上（最新）から探して返す。
+		/// なければ null。複数あれば最も上にあるものを返す。
+		/// </summary>
+		IScreenEntry FindEntry<TPresenter>() where TPresenter : class, IScreenPresenter;
 		UniTask Replace(IScreenIdentifier id, ReplaceOptions opt = default, CancellationToken ct = default);
 		UniTask Change(IScreenIdentifier id, ChangeOptions opt = default, CancellationToken ct = default);
 		UniTask Reset(IScreenIdentifier id, ResetOptions opt = default, CancellationToken ct = default);

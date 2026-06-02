@@ -14,6 +14,9 @@ namespace ScreenFramework
 		UniTask OnSuspend(CancellationToken ct) => UniTask.CompletedTask;
 		UniTask OnResume(CancellationToken ct) => UniTask.CompletedTask;
 		UniTask OnAfterUnload(IScreenDataWriter writer, CancellationToken ct) => UniTask.CompletedTask;
+
+		/// <summary>Navigator が生成直後にサービスバンドルを差し込む。既定は no-op。</summary>
+		void AssignServices(ScreenServices services) { }
 	}
 
 	/// <summary>
@@ -27,6 +30,11 @@ namespace ScreenFramework
 	{
 		protected TInput  In  { get; private set; }
 		protected TOutput Out { get; private set; }
+
+		/// <summary>Navigator から注入される共通サービス。プロジェクト基底で型付きに細める想定。</summary>
+		protected ScreenServices Services { get; private set; }
+
+		void IScreenPresenter.AssignServices(ScreenServices services) => Services = services;
 
 		UniTask IScreenPresenter.OnBeforeLoad(IScreenDataReader reader, CancellationToken ct)
 			=> OnBeforeLoad(reader, ct);

@@ -16,12 +16,14 @@ namespace Tests
 	public sealed class PreemptTests
 	{
 		IScreenContainer _pageContainer;
+		MockApiClient _mockApiClient;
 
 		[SetUp]
 		public void SetUp()
 		{
 			_pageContainer = NewContainer("PageRoot");
-			var services = new SampleServices(useMockViews: true);
+			_mockApiClient = new MockApiClient();
+			var services = new SampleServices(useMockViews: true, api: _mockApiClient);
 			var setup = new ScreenLayerSetup
 			{
 				Page = NewLayerConfig(_pageContainer),

@@ -14,5 +14,12 @@ namespace Sample.Api
 		UniTask<ProfileResponse> PostProfile(ProfileRequest profile, CancellationToken ct);
 
 		UniTask<BootstrapMasterResponse> GetBootstrapMaster(CancellationToken ct);
+
+		UniTask<GachaListResponse> GetGachaList(CancellationToken ct);
+
+		UniTask<GachaPullResponse> PullGacha(GachaPullRequest request, CancellationToken ct);
+
+		/// <summary>課金を模した所持金加算 (/user/charge)。</summary>
+		UniTask<ChargeResponse> ChargeMoney(ChargeRequest request, CancellationToken ct);
 	}
 }

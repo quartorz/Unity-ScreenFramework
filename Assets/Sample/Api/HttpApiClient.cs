@@ -53,6 +53,36 @@ namespace Sample.Api
 			return JsonUtility.FromJson<BootstrapMasterResponse>(req.downloadHandler.text);
 		}
 
+		public async UniTask<GachaListResponse> GetGachaList(CancellationToken ct)
+		{
+			using var req = UnityWebRequest.Get(_baseUrl + "/gacha/list");
+			await req.SendWebRequest().ToUniTask(cancellationToken: ct);
+			ThrowIfFailed(req);
+			return JsonUtility.FromJson<GachaListResponse>(req.downloadHandler.text);
+		}
+
+		public async UniTask<GachaPullResponse> PullGacha(GachaPullRequest request, CancellationToken ct)
+		{
+			return await PostJson<GachaPullRequest, GachaPullResponse>("/gacha/pull", request, ct);
+		}
+
+		public async UniTask<ChargeResponse> ChargeMoney(ChargeRequest request, CancellationToken ct)
+		{
+			return await PostJson<ChargeRequest, ChargeResponse>("/user/charge", request, ct);
+		}
+
+		async UniTask<TResp> PostJson<TReq, TResp>(string path, TReq body, CancellationToken ct)
+		{
+			var json = JsonUtility.ToJson(body);
+			using var req = new UnityWebRequest(_baseUrl + path, "POST");
+			req.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
+			req.downloadHandler = new DownloadHandlerBuffer();
+			req.SetRequestHeader("Content-Type", "application/json");
+			await req.SendWebRequest().ToUniTask(cancellationToken: ct);
+			ThrowIfFailed(req);
+			return JsonUtility.FromJson<TResp>(req.downloadHandler.text);
+		}
+
 		static void ThrowIfFailed(UnityWebRequest req)
 		{
 			if (req.result != UnityWebRequest.Result.Success)

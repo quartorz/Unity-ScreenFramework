@@ -16,7 +16,7 @@ MonoBehaviour:
   m_GUID: be0eeb7fcd5076f46a96fdfb1a388a0c
   m_SerializeEntries:
   - m_GUID: 0665608428066bc43af9c5c1263cb94d
-    m_Address: Views/InputDialog
+    m_Address: Views/InputDialogView
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0

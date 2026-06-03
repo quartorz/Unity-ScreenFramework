@@ -38,6 +38,7 @@ namespace Sample
 					UserId = userInfo.userId,
 					Name = userInfo.name,
 					Level = userInfo.level,
+					Money = userInfo.money,
 				});
 
 				_ready = true;

@@ -6,12 +6,13 @@ using UnityEngine;
 namespace Sample
 {
 	public sealed class HomePresenter
-		: SamplePresenter<MockView.Sample.IHomeViewInput, MockView.Sample.IHomeViewOutput>
+		: SamplePresenter<MockView.Sample.IHomeViewInput, MockView.Sample.IHomeViewOutput, HomeView>
 	{
 		protected override UniTask OnAfterLoad(IScreenDataReader reader, CancellationToken ct)
 		{
 			Out.SetTitle("Home Screen");
 			In.OnGoProfileClicked += OnGoProfile;
+			In.OnGoGachaClicked += OnGoGacha;
 			Debug.Log("[HomePresenter] OnAfterLoad");
 			return UniTask.CompletedTask;
 		}
@@ -21,6 +22,7 @@ namespace Sample
 			if (In != null)
 			{
 				In.OnGoProfileClicked -= OnGoProfile;
+				In.OnGoGachaClicked -= OnGoGacha;
 			}
 			Debug.Log("[HomePresenter] OnAfterUnload");
 			return UniTask.CompletedTask;
@@ -29,6 +31,11 @@ namespace Sample
 		void OnGoProfile()
 		{
 			ScreenNavigator.Page.Push(new ProfileScreenId(Services.UserData.Info.UserId)).Forget();
+		}
+
+		void OnGoGacha()
+		{
+			ScreenNavigator.Page.Push(new GachaTopScreenId()).Forget();
 		}
 	}
 }

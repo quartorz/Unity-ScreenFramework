@@ -12,5 +12,6 @@ namespace Sample.Api
 		public string userId;
 		public string name;
 		public int level;
+		public int money;
 	}
 }

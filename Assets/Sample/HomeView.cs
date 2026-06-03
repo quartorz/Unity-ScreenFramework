@@ -12,8 +12,10 @@ namespace Sample
 	{
 		[SerializeField] Text _title;
 		[SerializeField] Button _goProfile;
+		[SerializeField] Button _goGacha;
 
 		[MockGenerator.Input]  public event Action OnGoProfileClicked;
+		[MockGenerator.Input]  public event Action OnGoGachaClicked;
 
 		void Awake()
 		{
@@ -28,6 +30,7 @@ namespace Sample
 			bg.color = new Color(0.15f, 0.30f, 0.50f, 1f);
 
 			if (_goProfile != null) _goProfile.onClick.AddListener(() => OnGoProfileClicked?.Invoke());
+			if (_goGacha != null) _goGacha.onClick.AddListener(() => OnGoGachaClicked?.Invoke());
 		}
 
 		[MockGenerator.Output]

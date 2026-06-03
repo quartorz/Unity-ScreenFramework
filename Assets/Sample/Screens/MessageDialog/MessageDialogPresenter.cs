@@ -8,6 +8,7 @@ namespace Sample.Dialogs
 		: SampleDialogPresenter<
 			MockView.Sample.Dialogs.IMessageDialogViewInput,
 			MockView.Sample.Dialogs.IMessageDialogViewOutput,
+			MessageDialogView,
 			MessageDialogResult>
 	{
 		readonly string _title;

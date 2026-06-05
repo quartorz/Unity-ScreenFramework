@@ -91,6 +91,7 @@ GameObject:
   - component: {fileID: 5662122601741432720}
   - component: {fileID: 2055603872858815956}
   - component: {fileID: 134244523751270322}
+  - component: {fileID: 2836841655413360310}
   m_Layer: 0
   m_Name: ProfileButton
   m_TagString: Untagged
@@ -200,6 +201,19 @@ MonoBehaviour:
   m_OnClick:
     m_PersistentCalls:
       m_Calls: []
+--- !u!114 &2836841655413360310
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4732570987379560587}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f093bab1a5103a64dba784993923b39a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Sample::Sample.SampleButton
+  _button: {fileID: 134244523751270322}
 --- !u!1 &5641152484769483540
 GameObject:
   m_ObjectHideFlags: 0
@@ -212,6 +226,7 @@ GameObject:
   - component: {fileID: 2264863807644477104}
   - component: {fileID: 8239966489397807236}
   - component: {fileID: 424076594014635328}
+  - component: {fileID: 2929578735088181787}
   m_Layer: 0
   m_Name: DetailButton
   m_TagString: Untagged
@@ -321,6 +336,19 @@ MonoBehaviour:
   m_OnClick:
     m_PersistentCalls:
       m_Calls: []
+--- !u!114 &2929578735088181787
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5641152484769483540}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f093bab1a5103a64dba784993923b39a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Sample::Sample.SampleButton
+  _button: {fileID: 424076594014635328}
 --- !u!1 &5731726342395739480
 GameObject:
   m_ObjectHideFlags: 0
@@ -375,8 +403,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Sample::Sample.HomeView
   _title: {fileID: 4911443848803780326}
-  _goDetail: {fileID: 424076594014635328}
-  _goProfile: {fileID: 134244523751270322}
+  _goProfile: {fileID: 2836841655413360310}
+  _goGacha: {fileID: 2929578735088181787}
 --- !u!222 &8227815114123829638
 CanvasRenderer:
   m_ObjectHideFlags: 0

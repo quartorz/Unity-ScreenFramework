@@ -44,7 +44,10 @@ namespace ScreenFramework
 			LiveEntry created = null;
 			await Run(opt.InterruptPriority, ct, async myCt =>
 			{
-				created = await PushCore(id, opt, resultSource: null, myCt);
+				var from = Current;
+				FireStart(from, id, ScreenTransitionKind.Push);
+				try { created = await PushCore(id, opt, resultSource: null, myCt); }
+				finally { FireEnd(from, Current, ScreenTransitionKind.Push); }
 			});
 			return created != null ? new ScreenEntry(this, created.Presenter) : null;
 		}
@@ -71,7 +74,10 @@ namespace ScreenFramework
 			// Push 自体は通常通り Run。tcs を PushCore に持ち込んで entry.ResultSource に貼る。
 			await Run(opt.InterruptPriority, ct, async myCt =>
 			{
-				await PushCore(id, opt, resultSource: tcs, myCt);
+				var from = Current;
+				FireStart(from, id, ScreenTransitionKind.Push);
+				try { await PushCore(id, opt, resultSource: tcs, myCt); }
+				finally { FireEnd(from, Current, ScreenTransitionKind.Push); }
 			});
 
 			// 自分のエントリが閉じるのを待つ。preempt/DismissAll/Reset/Change で死んだら
@@ -83,7 +89,14 @@ namespace ScreenFramework
 		public UniTask Pop(PopOptions opt = default, CancellationToken ct = default)
 		{
 			return Run(opt.InterruptPriority, ct, async myCt =>
-				await PopCore(opt, myCt));
+			{
+				if (_history.Count <= 1) return; // PopCore と同じガード（Fire しないため）
+				var from = Current;
+				var to = _history.Count >= 2 ? _history[_history.Count - 2] : null;
+				FireStart(from, to, ScreenTransitionKind.Pop);
+				try { await PopCore(opt, myCt); }
+				finally { FireEnd(from, Current, ScreenTransitionKind.Pop); }
+			});
 		}
 
 		public UniTask Close(IScreenPresenter target, PopOptions opt = default, CancellationToken ct = default)
@@ -93,7 +106,29 @@ namespace ScreenFramework
 			// （他レイヤー経由の Close 呼び出しでこの navigator の進行中遷移を巻き込まないため）。
 			if (!Owns(target)) return UniTask.CompletedTask;
 			return Run(opt.InterruptPriority, ct, async myCt =>
-				await CloseCore(target, opt, myCt));
+			{
+				// Run 内で再度 idx を確定（pending 解消中に位置が変わっている可能性）。
+				// Fire は top close 時のみ Pop を 1 発、middle close は silent（既存仕様）。
+				var idx = -1;
+				for (var i = 0; i < _live.Count; i++)
+				{
+					if (_live[i] != null && ReferenceEquals(_live[i].Presenter, target)) { idx = i; break; }
+				}
+				if (idx < 0) return;
+
+				if (idx == _live.Count - 1)
+				{
+					var from = Current;
+					var to = _history.Count >= 2 ? _history[_history.Count - 2] : null;
+					FireStart(from, to, ScreenTransitionKind.Pop);
+					try { await CloseTopAsync(opt, myCt); }
+					finally { FireEnd(from, Current, ScreenTransitionKind.Pop); }
+				}
+				else
+				{
+					await CloseMiddleAsync(idx, myCt);
+				}
+			});
 		}
 
 		bool Owns(IScreenPresenter target)
@@ -109,7 +144,12 @@ namespace ScreenFramework
 		{
 			if (id == null) throw new ArgumentNullException(nameof(id));
 			return Run(opt.InterruptPriority, ct, async myCt =>
-				await ReplaceCore(id, opt, myCt));
+			{
+				var from = Current;
+				FireStart(from, id, ScreenTransitionKind.Replace);
+				try { await ReplaceCore(id, opt, myCt); }
+				finally { FireEnd(from, Current, ScreenTransitionKind.Replace); }
+			});
 		}
 
 		public UniTask Change(IScreenIdentifier id, ChangeOptions opt = default, CancellationToken ct = default)
@@ -119,14 +159,20 @@ namespace ScreenFramework
 			// _history/_live を mutate するのを防ぐ。
 			return Run(opt.InterruptPriority, ct, async myCt =>
 			{
-				await ClearAllExceptCurrentAsync(myCt);
-				await ReplaceCore(id, new ReplaceOptions
+				var from = Current;
+				FireStart(from, id, ScreenTransitionKind.Change);
+				try
 				{
-					Data = opt.Data,
-					TransitionDirector = opt.TransitionDirector,
-					CachePolicyOverride = opt.CachePolicyOverride,
-					ModalOverride = opt.ModalOverride,
-				}, myCt);
+					await ClearAllExceptCurrentAsync(myCt);
+					await ReplaceCore(id, new ReplaceOptions
+					{
+						Data = opt.Data,
+						TransitionDirector = opt.TransitionDirector,
+						CachePolicyOverride = opt.CachePolicyOverride,
+						ModalOverride = opt.ModalOverride,
+					}, myCt);
+				}
+				finally { FireEnd(from, Current, ScreenTransitionKind.Change); }
 			});
 		}
 
@@ -135,14 +181,20 @@ namespace ScreenFramework
 			if (id == null) throw new ArgumentNullException(nameof(id));
 			return Run(opt.InterruptPriority, ct, async myCt =>
 			{
-				await DismissAllInternal(myCt);
-				await PushCore(id, new PushOptions
+				var from = Current;
+				FireStart(from, id, ScreenTransitionKind.Reset);
+				try
 				{
-					Data = opt.Data,
-					TransitionDirector = opt.TransitionDirector,
-					CachePolicyOverride = opt.CachePolicyOverride,
-					ModalOverride = opt.ModalOverride,
-				}, resultSource: null, myCt);
+					await DismissAllInternal(myCt);
+					await PushCore(id, new PushOptions
+					{
+						Data = opt.Data,
+						TransitionDirector = opt.TransitionDirector,
+						CachePolicyOverride = opt.CachePolicyOverride,
+						ModalOverride = opt.ModalOverride,
+					}, resultSource: null, myCt);
+				}
+				finally { FireEnd(from, Current, ScreenTransitionKind.Reset); }
 			});
 		}
 
@@ -158,26 +210,35 @@ namespace ScreenFramework
 				}
 				if (targetIndex < 0 || targetIndex == _history.Count - 1) return;
 
-				for (var i = _history.Count - 2; i > targetIndex; i--)
+				var from = Current;
+				var to = _history[targetIndex];
+				FireStart(from, to, ScreenTransitionKind.PopTo);
+				try
 				{
-					if (_live[i] != null)
+					for (var i = _history.Count - 2; i > targetIndex; i--)
 					{
-						await ExitPreviousAsync(_live[i], ScreenCacheMode.DestroyOnCover, isPop: true, CancellationToken.None);
-						DestroyBlockerIfAny(_live[i]);
+						if (_live[i] != null)
+						{
+							await ExitPreviousAsync(_live[i], ScreenCacheMode.DestroyOnCover, isPop: true, CancellationToken.None);
+							DestroyBlockerIfAny(_live[i]);
+						}
+						_live.RemoveAt(i);
+						_history.RemoveAtInternal(i);
 					}
-					_live.RemoveAt(i);
-					_history.RemoveAtInternal(i);
-				}
 
-				await PopCore(new PopOptions
-				{
-					TransitionDirector = opt.TransitionDirector,
-				}, myCt);
+					await PopCore(new PopOptions
+					{
+						TransitionDirector = opt.TransitionDirector,
+					}, myCt);
+				}
+				finally { FireEnd(from, Current, ScreenTransitionKind.PopTo); }
 			});
 		}
 
 		public UniTask DismissAll(CancellationToken ct = default)
 		{
+			// DismissAll は専用 Kind を持たないため Fire しない（既存仕様維持）。
+			// 必要なら ScreenTransitionKind に DismissAll を追加する。
 			return Run(InterruptPriority.Preempt, ct, async myCt =>
 			{
 				await DismissAllInternal(myCt);
@@ -272,9 +333,7 @@ namespace ScreenFramework
 
 		async UniTask<LiveEntry> PushCore(IScreenIdentifier id, PushOptions opt, UniTaskCompletionSource<IScreenDataReader> resultSource, CancellationToken ct)
 		{
-			var from = Current;
-			FireStart(from, id, ScreenTransitionKind.Push);
-
+			// FireStart/FireEnd は public ラッパー側で行う（caller intent の Kind で fire するため）。
 			// --- ロールバック可能ゾーン ---
 			LiveEntry entry;
 			try
@@ -292,80 +351,138 @@ namespace ScreenFramework
 
 			// --- 完走必須ゾーン ---
 			var safeCt = CancellationToken.None;
-			try
+			var director = opt.TransitionDirector ?? _config.DefaultTransition;
+			var transition = director?.CreateHandle();
+			if (transition != null) await transition.Start(safeCt);
+
+			entry.Modal = ResolveModal(opt.ModalOverride);
+
+			if (_live.Count > 0)
 			{
-				var director = opt.TransitionDirector ?? _config.DefaultTransition;
-				var transition = director?.CreateHandle();
-				if (transition != null) await transition.Start(safeCt);
-
-				entry.Modal = ResolveModal(opt.ModalOverride);
-
-				if (_live.Count > 0)
+				if (_config.StackMode == StackMode.Cover)
 				{
-					if (_config.StackMode == StackMode.Cover)
-					{
-						var prev = _live[_live.Count - 1];
-						var cache = ResolveCacheMode(_history[_history.Count - 1], opt.CachePolicyOverride);
-						await ExitPreviousAsync(prev, cache, isPop: false, safeCt);
-						if (cache == ScreenCacheMode.DestroyOnCover)
-							_live[_live.Count - 1] = null;
-					}
-					// Stack mode: 前画面はそのまま残す（visible + active）
+					var prev = _live[_live.Count - 1];
+					var cache = ResolveCacheMode(_history[_history.Count - 1], opt.CachePolicyOverride);
+					await ExitPreviousAsync(prev, cache, isPop: false, safeCt);
+					if (cache == ScreenCacheMode.DestroyOnCover)
+						_live[_live.Count - 1] = null;
 				}
-
-				// Stack mode + Modal で入力遮蔽ブロッカーを挿入（new screen より下、前画面より上）
-				if (ShouldCreateBlocker(entry.Modal) && _live.Count > 0)
-				{
-					entry.ModalBlocker = CreateModalBlocker(_config.Container.Root);
-				}
-
-				entry.View.SetParent(_config.Container.Root);
-				entry.View.SetActive(true);
-				await entry.Presenter.OnBeforeEnter(entry.PushPayload, safeCt);
-
-				await RunEnterAsync(entry, transition, safeCt);
-
-				await entry.Presenter.OnAfterEnter(EmptyScreenDataReader.Instance, safeCt);
-				entry.PushPayload = null;
-
-				_history.Push(id);
-				_live.Add(entry);
+				// Stack mode: 前画面はそのまま残す（visible + active）
 			}
-			finally
+
+			// Stack mode + Modal で入力遮蔽ブロッカーを挿入（new screen より下、前画面より上）
+			if (ShouldCreateBlocker(entry.Modal) && _live.Count > 0)
 			{
-				FireEnd(from, Current, ScreenTransitionKind.Push);
+				entry.ModalBlocker = CreateModalBlocker(_config.Container.Root);
 			}
+
+			entry.View.SetParent(_config.Container.Root);
+			entry.View.SetActive(true);
+			await entry.Presenter.OnBeforeEnter(entry.PushPayload, safeCt);
+
+			await RunEnterAsync(entry, transition, safeCt);
+
+			await entry.Presenter.OnAfterEnter(EmptyScreenDataReader.Instance, safeCt);
+			entry.PushPayload = null;
+
+			_history.Push(id);
+			_live.Add(entry);
 			return entry;
 		}
 
 		async UniTask PopCore(PopOptions opt, CancellationToken ct)
 		{
 			if (_history.Count <= 1) return;
-			var from = Current;
-			FireStart(from, _history.Count >= 2 ? _history[_history.Count - 2] : null, ScreenTransitionKind.Pop);
 
+			// FireStart/FireEnd は public ラッパー側で行う。
 			// Pop は最初から完走必須ゾーン
 			var safeCt = CancellationToken.None;
-			try
+			var director = opt.TransitionDirector ?? _config.DefaultTransition;
+			var transition = director?.CreateHandle();
+			if (transition != null) await transition.Start(safeCt);
+
+			var top = _live[_live.Count - 1];
+			var returnStore = new ScreenDataStore();
+			await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: true, safeCt, returnStore, isNormalPop: true);
+			DestroyBlockerIfAny(top);
+
+			_live.RemoveAt(_live.Count - 1);
+			_history.PopCurrent();
+
+			var belowIndex = _live.Count - 1;
+			var below = _live[belowIndex];
+			// Enter アニメは「下が再表示される」場合だけ走らせる
+			//  - Cover + Destroy → reload された：true
+			//  - Cover + Keep → Suspend していたものを起こす：true
+			//  - Stack → そもそも常時 visible だった：false
+			bool belowReappears;
+			if (below == null)
 			{
-				var director = opt.TransitionDirector ?? _config.DefaultTransition;
-				var transition = director?.CreateHandle();
-				if (transition != null) await transition.Start(safeCt);
+				var belowId = _history[belowIndex];
+				below = await CreateAndPreloadAsync(belowId, data: null, safeCt);
+				below.View.SetParent(_config.Container.Root);
+				below.View.SetActive(true);
+				_live[belowIndex] = below;
+				belowReappears = true;
+			}
+			else if (below.Suspended)
+			{
+				below.View.SetActive(true);
+				await below.Presenter.OnResume(safeCt);
+				below.Suspended = false;
+				belowReappears = true;
+			}
+			else
+			{
+				below.View.SetActive(true); // 念のため（Stack なら既に true）
+				belowReappears = false;
+			}
 
-				var top = _live[_live.Count - 1];
-				var returnStore = new ScreenDataStore();
-				await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: true, safeCt, returnStore, isNormalPop: true);
-				DestroyBlockerIfAny(top);
+			await below.Presenter.OnBeforeEnter(returnStore, safeCt);
+			await RunEnterAsync(below, transition, safeCt, playViewEnter: belowReappears);
+			await below.Presenter.OnAfterEnter(EmptyScreenDataReader.Instance, safeCt);
+		}
 
-				_live.RemoveAt(_live.Count - 1);
-				_history.PopCurrent();
+		/// <summary>
+		/// 中間エントリを黙って消す（transition なし、上の画面は触らない）。
+		/// Fire は呼ばない。
+		/// </summary>
+		async UniTask CloseMiddleAsync(int idx, CancellationToken ct)
+		{
+			var entry = _live[idx];
+			var safeCt = CancellationToken.None;
+			var returnStore = new ScreenDataStore();
+			await ExitPreviousAsync(entry, ScreenCacheMode.DestroyOnCover, isPop: true, safeCt, returnStore, isNormalPop: true);
+			DestroyBlockerIfAny(entry);
+			_live.RemoveAt(idx);
+			_history.RemoveAtInternal(idx);
+		}
 
+		/// <summary>
+		/// 現在の top を閉じる。下があれば Pop と同じ流れで Enter させる。
+		/// 下がなくても閉じる（Pop と違ってガードなし）。
+		/// </summary>
+		async UniTask CloseTopAsync(PopOptions opt, CancellationToken ct)
+		{
+			if (_live.Count == 0) return;
+
+			// FireStart/FireEnd は public ラッパー側（Close）で行う。
+			var safeCt = CancellationToken.None;
+			var director = opt.TransitionDirector ?? _config.DefaultTransition;
+			var transition = director?.CreateHandle();
+			if (transition != null) await transition.Start(safeCt);
+
+			var top = _live[_live.Count - 1];
+			var returnStore = new ScreenDataStore();
+			await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: true, safeCt, returnStore, isNormalPop: true);
+			DestroyBlockerIfAny(top);
+			_live.RemoveAt(_live.Count - 1);
+			_history.PopCurrent();
+
+			if (_live.Count > 0)
+			{
 				var belowIndex = _live.Count - 1;
 				var below = _live[belowIndex];
-				// Enter アニメは「下が再表示される」場合だけ走らせる
-				//  - Cover + Destroy → reload された：true
-				//  - Cover + Keep → Suspend していたものを起こす：true
-				//  - Stack → そもそも常時 visible だった：false
 				bool belowReappears;
 				if (below == null)
 				{
@@ -385,7 +502,7 @@ namespace ScreenFramework
 				}
 				else
 				{
-					below.View.SetActive(true); // 念のため（Stack なら既に true）
+					below.View.SetActive(true);
 					belowReappears = false;
 				}
 
@@ -393,105 +510,10 @@ namespace ScreenFramework
 				await RunEnterAsync(below, transition, safeCt, playViewEnter: belowReappears);
 				await below.Presenter.OnAfterEnter(EmptyScreenDataReader.Instance, safeCt);
 			}
-			finally
+			else if (transition != null)
 			{
-				FireEnd(from, Current, ScreenTransitionKind.Pop);
-			}
-		}
-
-		async UniTask CloseCore(IScreenPresenter target, PopOptions opt, CancellationToken ct)
-		{
-			var idx = -1;
-			for (var i = 0; i < _live.Count; i++)
-			{
-				if (_live[i] != null && ReferenceEquals(_live[i].Presenter, target)) { idx = i; break; }
-			}
-			if (idx < 0) return; // 既に閉じられている / まだスタックにない
-
-			// top なら Pop と同じ流れ（下を Enter させる）。
-			// ただし Pop の "履歴が 1 枚なら何もしない" ガードは Close では適用しない。
-			if (idx == _live.Count - 1)
-			{
-				await CloseTopAsync(opt, ct);
-				return;
-			}
-
-			// 中間：黙って消す（transition なし、上の画面は触らない）
-			var entry = _live[idx];
-			var safeCt = CancellationToken.None;
-			var returnStore = new ScreenDataStore();
-			await ExitPreviousAsync(entry, ScreenCacheMode.DestroyOnCover, isPop: true, safeCt, returnStore, isNormalPop: true);
-			DestroyBlockerIfAny(entry);
-			_live.RemoveAt(idx);
-			_history.RemoveAtInternal(idx);
-		}
-
-		/// <summary>
-		/// 現在の top を閉じる。下があれば Pop と同じ流れで Enter させる。
-		/// 下がなくても閉じる（Pop と違ってガードなし）。
-		/// </summary>
-		async UniTask CloseTopAsync(PopOptions opt, CancellationToken ct)
-		{
-			if (_live.Count == 0) return;
-
-			var from = Current;
-			var to = _history.Count >= 2 ? _history[_history.Count - 2] : null;
-			FireStart(from, to, ScreenTransitionKind.Pop);
-
-			var safeCt = CancellationToken.None;
-			try
-			{
-				var director = opt.TransitionDirector ?? _config.DefaultTransition;
-				var transition = director?.CreateHandle();
-				if (transition != null) await transition.Start(safeCt);
-
-				var top = _live[_live.Count - 1];
-				var returnStore = new ScreenDataStore();
-				await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: true, safeCt, returnStore, isNormalPop: true);
-				DestroyBlockerIfAny(top);
-				_live.RemoveAt(_live.Count - 1);
-				_history.PopCurrent();
-
-				if (_live.Count > 0)
-				{
-					var belowIndex = _live.Count - 1;
-					var below = _live[belowIndex];
-					bool belowReappears;
-					if (below == null)
-					{
-						var belowId = _history[belowIndex];
-						below = await CreateAndPreloadAsync(belowId, data: null, safeCt);
-						below.View.SetParent(_config.Container.Root);
-						below.View.SetActive(true);
-						_live[belowIndex] = below;
-						belowReappears = true;
-					}
-					else if (below.Suspended)
-					{
-						below.View.SetActive(true);
-						await below.Presenter.OnResume(safeCt);
-						below.Suspended = false;
-						belowReappears = true;
-					}
-					else
-					{
-						below.View.SetActive(true);
-						belowReappears = false;
-					}
-
-					await below.Presenter.OnBeforeEnter(returnStore, safeCt);
-					await RunEnterAsync(below, transition, safeCt, playViewEnter: belowReappears);
-					await below.Presenter.OnAfterEnter(EmptyScreenDataReader.Instance, safeCt);
-				}
-				else if (transition != null)
-				{
-					// 下が無い：transition だけ完走させる
-					await transition.End(safeCt);
-				}
-			}
-			finally
-			{
-				FireEnd(from, Current, ScreenTransitionKind.Pop);
+				// 下が無い：transition だけ完走させる
+				await transition.End(safeCt);
 			}
 		}
 
@@ -505,51 +527,41 @@ namespace ScreenFramework
 					TransitionDirector = opt.TransitionDirector,
 					CachePolicyOverride = opt.CachePolicyOverride,
 					ModalOverride = opt.ModalOverride,
-					InterruptPriority = opt.InterruptPriority,
 				}, resultSource: null, ct);
 				return;
 			}
 
-			var from = Current;
-			FireStart(from, id, ScreenTransitionKind.Replace);
-
+			// FireStart/FireEnd は public ラッパー側で行う。
 			// ロールバック可能ゾーン
 			var newEntry = await CreateAndPreloadAsync(id, opt.Data, ct);
 			ct.ThrowIfCancellationRequested();
 
 			// 完走必須ゾーン
 			var safeCt = CancellationToken.None;
-			try
+			var director = opt.TransitionDirector ?? _config.DefaultTransition;
+			var transition = director?.CreateHandle();
+			if (transition != null) await transition.Start(safeCt);
+
+			var top = _live[_live.Count - 1];
+			await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: false, safeCt);
+			DestroyBlockerIfAny(top);
+
+			newEntry.Modal = ResolveModal(opt.ModalOverride);
+			// Stack mode + Modal で blocker を新 entry に付ける（下に他画面が残っている場合のみ）
+			if (ShouldCreateBlocker(newEntry.Modal) && _live.Count >= 2)
 			{
-				var director = opt.TransitionDirector ?? _config.DefaultTransition;
-				var transition = director?.CreateHandle();
-				if (transition != null) await transition.Start(safeCt);
-
-				var top = _live[_live.Count - 1];
-				await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: false, safeCt);
-				DestroyBlockerIfAny(top);
-
-				newEntry.Modal = ResolveModal(opt.ModalOverride);
-				// Stack mode + Modal で blocker を新 entry に付ける（下に他画面が残っている場合のみ）
-				if (ShouldCreateBlocker(newEntry.Modal) && _live.Count >= 2)
-				{
-					newEntry.ModalBlocker = CreateModalBlocker(_config.Container.Root);
-				}
-
-				_live[_live.Count - 1] = newEntry;
-				_history.ReplaceCurrent(id);
-
-				newEntry.View.SetParent(_config.Container.Root);
-				newEntry.View.SetActive(true);
-				await newEntry.Presenter.OnBeforeEnter(newEntry.PushPayload, safeCt);
-				await RunEnterAsync(newEntry, transition, safeCt);
-				await newEntry.Presenter.OnAfterEnter(EmptyScreenDataReader.Instance, safeCt);
-				newEntry.PushPayload = null;
+				newEntry.ModalBlocker = CreateModalBlocker(_config.Container.Root);
 			}
-			finally
-			{
-				FireEnd(from, Current, ScreenTransitionKind.Replace);
-			}
+
+			_live[_live.Count - 1] = newEntry;
+			_history.ReplaceCurrent(id);
+
+			newEntry.View.SetParent(_config.Container.Root);
+			newEntry.View.SetActive(true);
+			await newEntry.Presenter.OnBeforeEnter(newEntry.PushPayload, safeCt);
+			await RunEnterAsync(newEntry, transition, safeCt);
+			await newEntry.Presenter.OnAfterEnter(EmptyScreenDataReader.Instance, safeCt);
+			newEntry.PushPayload = null;
 		}
 
 		// ===========================================================================

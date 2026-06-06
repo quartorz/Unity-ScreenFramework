@@ -77,7 +77,7 @@ namespace Tests
 			var presenter = (IScreenPresenter)NewPresenter();
 			await ScreenTesting.PushAsync(presenter, mockView);
 
-			mockView.RaiseOnGoProfileClicked();
+			mockView.goProfile.RaiseOnClicked();
 
 			Assert.AreEqual(1, _pushedIds.Count);
 			var profile = _pushedIds[0] as ProfileScreenId;
@@ -94,7 +94,7 @@ namespace Tests
 			await ScreenTesting.PushAsync(presenter, mockView);
 			await ScreenTesting.PopAsync(presenter);
 
-			mockView.RaiseOnGoProfileClicked();
+			mockView.goGacha.RaiseOnClicked();
 
 			Assert.AreEqual(0, _pushedIds.Count, "Unload 後にイベントが leak しないこと");
 		}

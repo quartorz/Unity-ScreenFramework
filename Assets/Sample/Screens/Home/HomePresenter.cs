@@ -11,8 +11,8 @@ namespace Sample
 		protected override UniTask OnAfterLoad(IScreenDataReader reader, CancellationToken ct)
 		{
 			Out.SetTitle("Home Screen");
-			In.OnGoProfileClicked += OnGoProfile;
-			In.OnGoGachaClicked += OnGoGacha;
+			In.goProfile.OnClicked += OnGoProfile;
+			In.goGacha.OnClicked += OnGoGacha;
 			Debug.Log("[HomePresenter] OnAfterLoad");
 			return UniTask.CompletedTask;
 		}
@@ -21,8 +21,8 @@ namespace Sample
 		{
 			if (In != null)
 			{
-				In.OnGoProfileClicked -= OnGoProfile;
-				In.OnGoGachaClicked -= OnGoGacha;
+				In.goProfile.OnClicked -= OnGoProfile;
+				In.goGacha.OnClicked -= OnGoGacha;
 			}
 			Debug.Log("[HomePresenter] OnAfterUnload");
 			return UniTask.CompletedTask;

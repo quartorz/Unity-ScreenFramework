@@ -10,7 +10,7 @@ using UnityEngine;
 namespace Sample
 {
 	public sealed class TitlePresenter
-		: SamplePresenter<MockView.Sample.ITitleViewInput, MockView.Sample.ITitleViewOutput, TitleView>
+		: SamplePresenter<MockView.Sample.ITitleViewInput, MockView.Sample.ITitleViewOutput>
 	{
 		bool _ready;
 

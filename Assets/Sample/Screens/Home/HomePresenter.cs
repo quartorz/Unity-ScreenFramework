@@ -6,7 +6,7 @@ using UnityEngine;
 namespace Sample
 {
 	public sealed class HomePresenter
-		: SamplePresenter<MockView.Sample.IHomeViewInput, MockView.Sample.IHomeViewOutput, HomeView>
+		: SamplePresenter<MockView.Sample.IHomeViewInput, MockView.Sample.IHomeViewOutput>
 	{
 		protected override UniTask OnAfterLoad(IScreenDataReader reader, CancellationToken ct)
 		{

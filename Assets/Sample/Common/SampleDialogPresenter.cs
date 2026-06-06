@@ -7,11 +7,10 @@ namespace Sample
 	/// <see cref="SamplePresenter{TInput,TOutput,TView}"/> と同様、
 	/// <see cref="Registry"/> 経由で <see cref="SampleRegistry"/> を参照できる。
 	/// </summary>
-	public abstract class SampleDialogPresenter<TInput, TOutput, TView, TResult>
+	public abstract class SampleDialogPresenter<TInput, TOutput, TResult>
 		: DialogPresenter<TInput, TOutput, TResult>
 		where TInput : class
 		where TOutput : class
-		where TView : TInput, TOutput
 		where TResult : IScreenData
 	{
 		protected SampleRegistry Registry => (SampleRegistry)Services;

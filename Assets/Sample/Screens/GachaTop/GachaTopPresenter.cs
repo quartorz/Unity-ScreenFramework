@@ -21,8 +21,7 @@ namespace Sample
 	public sealed class GachaTopPresenter
 		: SamplePresenter<
 			MockView.Sample.IGachaTopViewInput,
-			MockView.Sample.IGachaTopViewOutput,
-			GachaTopView>
+			MockView.Sample.IGachaTopViewOutput>
 	{
 		GachaTopModel _model;
 		MoneyHeaderFeature _money;

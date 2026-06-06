@@ -19,6 +19,8 @@ namespace Tests
 		List<IScreenIdentifier> _pushedIds;
 		SampleRegistry _registry;
 
+		MockView.Sample.MockHomeView _view;
+
 		[SetUp]
 		public void SetUp()
 		{
@@ -51,6 +53,8 @@ namespace Tests
 				Name = "Alice",
 				Level = 1,
 			});
+
+			_view = new MockView.Sample.MockHomeView();
 		}
 
 		HomePresenter NewPresenter() => new HomePresenter().WithServices(_registry);
@@ -58,12 +62,11 @@ namespace Tests
 		[Test]
 		public async Task OnAfterLoad_SetsTitle_OnView()
 		{
-			var mockView = new MockView.Sample.MockHomeView();
 			string captured = null;
-			mockView.SetTitleFunc = title => captured = title;
+			_view.SetTitleFunc = title => captured = title;
 
 			var presenter = (IScreenPresenter)NewPresenter();
-			await ScreenTesting.PushAsync(presenter, mockView);
+			await ScreenTesting.PushAsync(presenter, _view);
 
 			Assert.AreEqual("Home Screen", captured);
 		}
@@ -71,13 +74,12 @@ namespace Tests
 		[Test]
 		public async Task GoProfileClick_PushesProfileScreen_WithUserIdFromServices()
 		{
-			var mockView = new MockView.Sample.MockHomeView();
-			mockView.SetTitleFunc = _ => { };
+			_view.SetTitleFunc = _ => { };
 
 			var presenter = (IScreenPresenter)NewPresenter();
-			await ScreenTesting.PushAsync(presenter, mockView);
+			await ScreenTesting.PushAsync(presenter, _view);
 
-			mockView.goProfile.RaiseOnClicked();
+			_view.goProfile.RaiseOnClicked();
 
 			Assert.AreEqual(1, _pushedIds.Count);
 			var profile = _pushedIds[0] as ProfileScreenId;
@@ -88,13 +90,11 @@ namespace Tests
 		[Test]
 		public async Task OnAfterUnload_UnsubscribesHandler_NoFurtherPushOnRaise()
 		{
-			var mockView = new MockView.Sample.MockHomeView();
-
 			var presenter = (IScreenPresenter)NewPresenter();
-			await ScreenTesting.PushAsync(presenter, mockView);
+			await ScreenTesting.PushAsync(presenter, _view);
 			await ScreenTesting.PopAsync(presenter);
 
-			mockView.goGacha.RaiseOnClicked();
+			_view.goGacha.RaiseOnClicked();
 
 			Assert.AreEqual(0, _pushedIds.Count, "Unload 後にイベントが leak しないこと");
 		}

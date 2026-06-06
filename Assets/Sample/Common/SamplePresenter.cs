@@ -8,10 +8,9 @@ namespace Sample
 	/// <see cref="Registry"/> プロパティから参照できるよう包む。
 	/// Navigator が生成直後に自動注入する。
 	/// </summary>
-	public abstract class SamplePresenter<TInput, TOutput, TView> : ScreenPresenter<TInput, TOutput>
+	public abstract class SamplePresenter<TInput, TOutput> : ScreenPresenter<TInput, TOutput>
 		where TInput : class
 		where TOutput : class
-		where TView : TInput, TOutput
 	{
 		protected SampleRegistry Registry => (SampleRegistry)Services;
 	}

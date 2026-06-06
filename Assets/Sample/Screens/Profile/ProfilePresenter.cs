@@ -10,7 +10,7 @@ using UnityEngine;
 namespace Sample
 {
 	public sealed class ProfilePresenter
-		: SamplePresenter<MockView.Sample.IProfileViewInput, MockView.Sample.IProfileViewOutput, ProfileView>
+		: SamplePresenter<MockView.Sample.IProfileViewInput, MockView.Sample.IProfileViewOutput>
 	{
 		readonly string _userId;
 		ProfileResponse _current;

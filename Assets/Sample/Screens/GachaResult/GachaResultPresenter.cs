@@ -9,8 +9,7 @@ namespace Sample
 	public sealed class GachaResultPresenter
 		: SamplePresenter<
 			MockView.Sample.IGachaResultViewInput,
-			MockView.Sample.IGachaResultViewOutput,
-			GachaResultView>
+			MockView.Sample.IGachaResultViewOutput>
 	{
 		readonly GachaPullResponse _result;
 

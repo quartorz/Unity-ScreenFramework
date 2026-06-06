@@ -3,6 +3,7 @@ using System.Threading;
 using Cysharp.Threading.Tasks;
 using R3;
 using Sample.Api;
+using Sample.Api.Net;
 
 namespace Sample
 {
@@ -19,18 +20,17 @@ namespace Sample
 	/// <item><description>
 	/// 内部 mutation は property の private setter のみ（バリデーションは setter に集約）
 	/// </description></item>
-	/// <item><description>
-	/// <c>Set*</c> 系メソッドは廃止、<c>_rp.Value =</c> の直接代入も書き手の規律で禁止
-	/// </description></item>
 	/// </list>
 	/// <para>
 	/// API 呼び出し + 状態書き戻し + busy 制御も Model 内で完結する（Feature は UI orchestration だけ）。
+	/// 通信エラーは <see cref="ApiErrorHandler"/> が SystemDialog で表示するので、ここでは throw 透過。
 	/// </para>
 	/// </summary>
 	public sealed class GachaTopModel : IDisposable
 	{
 		readonly UserDataHolder _user;
-		readonly IApiClient _api;
+		readonly IGachaService _gacha;
+		readonly IUserService _userApi;
 		readonly ReactiveProperty<int> _currentIndex = new(0);
 		readonly ReactiveProperty<bool> _busy = new(false);
 		readonly ReactiveProperty<int> _money;
@@ -61,10 +61,11 @@ namespace Sample
 		public Observable<bool> BusyObservable         => _busy;
 		public Observable<int>  MoneyObservable        => _money;
 
-		public GachaTopModel(UserDataHolder user, IApiClient api)
+		public GachaTopModel(UserDataHolder user, IGachaService gacha, IUserService userApi)
 		{
 			_user = user;
-			_api = api;
+			_gacha = gacha;
+			_userApi = userApi;
 			_money = new ReactiveProperty<int>(_user.Money);
 			// Holder は plain Action のままにしてあり、Model 側で RP に橋渡しする
 			_onUserMoneyChanged = () => _money.Value = _user.Money;
@@ -82,7 +83,7 @@ namespace Sample
 		/// <summary>ガチャ一覧を取得して初期化する。</summary>
 		public async UniTask Initialize(CancellationToken ct)
 		{
-			var list = await _api.GetGachaList(ct);
+			var list = await _gacha.List(new Options(ct));
 			Gachas = list.gachas ?? Array.Empty<GachaInfoResponse>();
 			CurrentIndex = 0;
 		}
@@ -97,7 +98,7 @@ namespace Sample
 			Busy = true;
 			try
 			{
-				var resp = await _api.ChargeMoney(new ChargeRequest { amount = amount }, ct);
+				var resp = await _userApi.Charge(new ChargeRequest { amount = amount }, new Options(ct));
 				_user.SetMoney(resp.money); // → Holder.OnMoneyChanged → Model._money RP に伝播
 			}
 			finally
@@ -114,8 +115,8 @@ namespace Sample
 			Busy = true;
 			try
 			{
-				var resp = await _api.PullGacha(
-					new GachaPullRequest { gachaId = current.id, count = count }, ct);
+				var resp = await _gacha.Pull(
+					new GachaPullRequest { gachaId = current.id, count = count }, new Options(ct));
 				_user.SetMoney(resp.money);
 				return resp;
 			}

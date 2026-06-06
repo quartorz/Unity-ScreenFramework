@@ -30,7 +30,7 @@ namespace Sample
 
 		void OnGoProfile()
 		{
-			ScreenNavigator.Page.Push(new ProfileScreenId(Services.UserData.Info.UserId)).Forget();
+			ScreenNavigator.Page.Push(new ProfileScreenId(Registry.UserData.Info.UserId)).Forget();
 		}
 
 		void OnGoGacha()

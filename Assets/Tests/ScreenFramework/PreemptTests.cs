@@ -16,21 +16,24 @@ namespace Tests
 	public sealed class PreemptTests
 	{
 		IScreenContainer _pageContainer;
-		MockApiClient _mockApiClient;
 
 		[SetUp]
 		public void SetUp()
 		{
 			_pageContainer = NewContainer("PageRoot");
-			_mockApiClient = new MockApiClient();
-			var services = new SampleServices(useMockViews: true, api: _mockApiClient);
+			var registry = new SampleRegistry(
+				useMockViews: true,
+				gacha: new MockGachaService(),
+				user: new MockUserService(),
+				profile: new MockProfileService(),
+				master: new MockMasterService());
 			var setup = new ScreenLayerSetup
 			{
 				Page = NewLayerConfig(_pageContainer),
 				Dialog = NewLayerConfig(NewContainer("DialogRoot")),
 				SystemDialog = NewLayerConfig(NewContainer("SystemDialogRoot")),
 			};
-			ScreenNavigator.Initialize(services, setup);
+			ScreenNavigator.Initialize(registry, setup);
 		}
 
 		[TearDown]

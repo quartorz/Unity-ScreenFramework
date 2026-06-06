@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using R3;
+using Sample.Api;
 using Sample.Dialogs;
 using ScreenFramework;
 using UnityEngine;
@@ -11,7 +12,8 @@ namespace Sample
 	/// <summary>
 	/// ガチャトップ画面の「ガチャ選択 + Pull」を担当する Feature。
 	/// 状態と通信は <see cref="GachaTopModel"/> に集約済みなので、ここでは
-	/// UI orchestration（ダイアログ確認 / 結果画面遷移 / エラー表示）と購読しかしない。
+	/// UI orchestration（ダイアログ確認 / 結果画面遷移）と購読しかしない。
+	/// 通信エラーダイアログは <see cref="ApiErrorHandler"/> が SystemDialog 側で出す。
 	/// </summary>
 	sealed class GachaPickerFeature
 	{
@@ -103,9 +105,11 @@ namespace Sample
 				await ScreenNavigator.Page.Push(new GachaResultScreenId(resp));
 			}
 			catch (OperationCanceledException) { }
+			catch (ApiException) { /* SystemDialog 表示済み */ }
+			catch (ApiTransportException) { /* SystemDialog 表示済み */ }
 			catch (Exception e)
 			{
-				Debug.LogError($"[GachaPickerFeature] pull failed: {e.Message}");
+				Debug.LogError($"[GachaPickerFeature] pull failed: {e}");
 			}
 		}
 	}

@@ -17,7 +17,7 @@ namespace Tests
 	{
 		MockScreenNavigator _nav;
 		List<IScreenIdentifier> _pushedIds;
-		SampleServices _services;
+		SampleRegistry _registry;
 
 		[SetUp]
 		public void SetUp()
@@ -39,8 +39,13 @@ namespace Tests
 				dialog: new MockScreenNavigator(),
 				systemDialog: new MockScreenNavigator());
 
-			_services = new SampleServices(useMockViews: true, api: new MockApiClient());
-			_services.UserData.SetInfo(new UserInfo
+			_registry = new SampleRegistry(
+				useMockViews: true,
+				gacha: new MockGachaService(),
+				user: new MockUserService(),
+				profile: new MockProfileService(),
+				master: new MockMasterService());
+			_registry.UserData.SetInfo(new UserInfo
 			{
 				UserId = "user-001",
 				Name = "Alice",
@@ -48,7 +53,7 @@ namespace Tests
 			});
 		}
 
-		HomePresenter NewPresenter() => new HomePresenter().WithServices(_services);
+		HomePresenter NewPresenter() => new HomePresenter().WithServices(_registry);
 
 		[Test]
 		public async Task OnAfterLoad_SetsTitle_OnView()

@@ -4,7 +4,7 @@ namespace Sample
 {
 	/// <summary>
 	/// 起動時に取得した「自ユーザーのデータ」をまとめて保持する。
-	/// マスタとは別に <see cref="SampleServices.UserData"/> から各画面が読み出す。
+	/// マスタとは別に <see cref="SampleRegistry.UserData"/> から各画面が読み出す。
 	/// 所持金などは値変化があり得るので、変更時にイベントで通知する。
 	/// </summary>
 	public sealed class UserDataHolder

@@ -1,6 +1,8 @@
+using System;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Sample.Api;
+using Sample.Api.Net;
 using Sample.Dialogs;
 using ScreenFramework;
 using UnityEngine;
@@ -23,8 +25,23 @@ namespace Sample
 			In.OnBackClicked += OnBack;
 
 			Out.SetSaving(true);
-			_current = await Services.Api.GetProfile(_userId, ct);
-			Apply(_current);
+			try
+			{
+				_current = await Registry.Profile.Get(_userId, new Options(ct));
+				Apply(_current);
+			}
+			catch (OperationCanceledException)
+			{
+				Out.SetSaving(false);
+				throw;
+			}
+			catch (Exception)
+			{
+				// ApiErrorHandler 表示済み・確認済み。framework の Load 系ゾーンは OCE のみを
+				// Handle.Unload + rollback 経路に乗せるので、OCE に詰め替えて投げて前画面（Home）に戻る。
+				Out.SetSaving(false);
+				throw new OperationCanceledException();
+			}
 			Out.SetSaving(false);
 		}
 
@@ -67,13 +84,15 @@ namespace Sample
 					name = result.Text,
 					level = _current.level,
 				};
-				_current = await Services.Api.PostProfile(next, CancellationToken.None);
+				_current = await Registry.Profile.Post(next, new Options(CancellationToken.None));
 				Apply(_current);
 			}
-			catch (System.OperationCanceledException) { /* 黙って戻る */ }
-			catch (System.Exception e)
+			catch (OperationCanceledException) { }
+			catch (ApiException) { /* SystemDialog 表示済み、ユーザー確認済み */ }
+			catch (ApiTransportException) { /* SystemDialog 表示済み、ユーザー確認済み */ }
+			catch (Exception e)
 			{
-				Debug.LogError($"[ProfilePresenter] edit failed: {e.Message}");
+				Debug.LogError($"[ProfilePresenter] edit failed: {e}");
 			}
 			finally
 			{

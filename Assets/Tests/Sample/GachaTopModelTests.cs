@@ -11,22 +11,24 @@ namespace Tests
 {
 	/// <summary>
 	/// <see cref="GachaTopModel"/> の純粋 unit テスト。View / Navigator / Framework なし。
-	/// <see cref="UserDataHolder"/> は実装、<see cref="IApiClient"/> は <see cref="MockApiClient"/>。
+	/// <see cref="UserDataHolder"/> は実装、<see cref="IGachaService"/> / <see cref="IUserService"/> は Mock。
 	/// </summary>
 	public sealed class GachaTopModelTests
 	{
-		MockApiClient _api;
+		MockGachaService _gacha;
+		MockUserService _user;
 		UserDataHolder _holder;
 		GachaTopModel _model;
 
 		[SetUp]
 		public void SetUp()
 		{
-			_api = new MockApiClient();
+			_gacha = new MockGachaService();
+			_user = new MockUserService();
 			_holder = new UserDataHolder();
 			_holder.SetInfo(new UserInfo { UserId = "u1", Name = "x", Level = 1, Money = 1000 });
-			_api.GetGachaListFunc = ct => UniTask.FromResult(MakeGachaList());
-			_model = new GachaTopModel(_holder, _api);
+			_gacha.ListFunc = opt => UniTask.FromResult(MakeGachaList());
+			_model = new GachaTopModel(_holder, _gacha, _user);
 		}
 
 		[TearDown]
@@ -52,7 +54,7 @@ namespace Tests
 		public async Task Initialize_LoadsGachasAndResetsIndex()
 		{
 			var calls = 0;
-			_api.GetGachaListFunc = ct => { calls++; return UniTask.FromResult(MakeGachaList()); };
+			_gacha.ListFunc = opt => { calls++; return UniTask.FromResult(MakeGachaList()); };
 
 			await _model.Initialize(default);
 
@@ -110,7 +112,7 @@ namespace Tests
 		public async Task Charge_Success_UpdatesHolderAndTogglesBusy()
 		{
 			ChargeRequest captured = null;
-			_api.ChargeMoneyFunc = (req, ct) =>
+			_user.ChargeFunc = (req, opt) =>
 			{
 				captured = req;
 				return UniTask.FromResult(new ChargeResponse { money = 1500 });
@@ -134,7 +136,7 @@ namespace Tests
 		{
 			var calls = 0;
 			var tcs = new UniTaskCompletionSource<ChargeResponse>();
-			_api.ChargeMoneyFunc = (req, ct) =>
+			_user.ChargeFunc = (req, opt) =>
 			{
 				calls++;
 				return tcs.Task;
@@ -161,7 +163,7 @@ namespace Tests
 			_model.MoveTo(1); // ガチャB を選択（cost1=200）
 
 			GachaPullRequest captured = null;
-			_api.PullGachaFunc = (req, ct) =>
+			_gacha.PullFunc = (req, opt) =>
 			{
 				captured = req;
 				return UniTask.FromResult(new GachaPullResponse
@@ -190,7 +192,7 @@ namespace Tests
 		{
 			await _model.Initialize(default);
 			var tcs = new UniTaskCompletionSource<GachaPullResponse>();
-			_api.PullGachaFunc = (req, ct) => tcs.Task;
+			_gacha.PullFunc = (req, opt) => tcs.Task;
 
 			var first = _model.Pull(1, default); // hang
 			Assert.IsTrue(_model.Busy);
@@ -213,7 +215,7 @@ namespace Tests
 		public async Task Pull_ApiFailure_ResetsBusy()
 		{
 			await _model.Initialize(default);
-			_api.PullGachaFunc = (req, ct) => UniTask.FromException<GachaPullResponse>(new Exception("oops"));
+			_gacha.PullFunc = (req, opt) => UniTask.FromException<GachaPullResponse>(new Exception("oops"));
 
 			try
 			{

@@ -1,6 +1,7 @@
 using Cysharp.Threading.Tasks;
 using LocalServer;
 using Sample.Api;
+using Sample.Api.Net;
 using ScreenFramework;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -23,8 +24,13 @@ namespace Sample
 		{
 			EnsureEventSystem();
 
-			var api = new HttpApiClient(ServerBoot.Instance.BaseUrl);
-			var services = new SampleServices(useMockViews: false, api: api);
+			HttpClient.BaseUrl = ServerBoot.Instance.BaseUrl;
+			var registry = new SampleRegistry(
+				useMockViews: false,
+				gacha: new GachaService(),
+				user: new UserService(),
+				profile: new ProfileService(),
+				master: new MasterService());
 
 			var setup = new ScreenLayerSetup
 			{
@@ -57,7 +63,7 @@ namespace Sample
 				},
 			};
 
-			ScreenNavigator.Initialize(services, setup);
+			ScreenNavigator.Initialize(registry, setup);
 
 			if (_startWithProfile)
 				// debug 用ショートカット。Title をスキップしているので UserData は空のまま。

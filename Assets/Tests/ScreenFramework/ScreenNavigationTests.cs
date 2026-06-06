@@ -18,7 +18,7 @@ namespace Tests
 		IScreenContainer _pageContainer;
 		IScreenContainer _dialogContainer;
 		IScreenContainer _systemDialogContainer;
-		MockApiClient _mockApiClient;
+		MockProfileService _mockProfileApi;
 
 		[SetUp]
 		public void SetUp()
@@ -26,20 +26,23 @@ namespace Tests
 			_pageContainer = NewContainer("PageRoot");
 			_dialogContainer = NewContainer("DialogRoot");
 			_systemDialogContainer = NewContainer("SystemDialogRoot");
-			_mockApiClient = new MockApiClient();
-			// Profile 画面は OnAfterLoad で GetProfile(userId, ct) を叩くので最低限のスタブを置く
-			_mockApiClient.GetProfileFunc = (userId, ct) => UniTask.FromResult(new ProfileResponse
+			_mockProfileApi = new MockProfileService();
+			// Profile 画面は OnAfterLoad で Profile.Get(userId) を叩くので最低限のスタブを置く
+			_mockProfileApi.GetFunc = (userId, opt) => UniTask.FromResult(new ProfileResponse
 			{
 				userId = userId,
 				name = "test",
 				level = 1,
 			});
 
-			var services = new SampleServices(
+			var registry = new SampleRegistry(
 				useMockViews: true,
-				api: _mockApiClient);
-			// HomePresenter が Services.UserData.Info.UserId を参照するので seed しておく
-			services.UserData.SetInfo(new UserInfo
+				gacha: new MockGachaService(),
+				user: new MockUserService(),
+				profile: _mockProfileApi,
+				master: new MockMasterService());
+			// HomePresenter が Registry.UserData.Info.UserId を参照するので seed しておく
+			registry.UserData.SetInfo(new UserInfo
 			{
 				UserId = "user-001",
 				Name = "test",
@@ -53,7 +56,7 @@ namespace Tests
 				SystemDialog = NewLayerConfig(_systemDialogContainer),
 			};
 
-			ScreenNavigator.Initialize(services, setup);
+			ScreenNavigator.Initialize(registry, setup);
 		}
 
 		[TearDown]

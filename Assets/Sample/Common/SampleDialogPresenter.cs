@@ -4,7 +4,8 @@ namespace Sample
 {
 	/// <summary>
 	/// Sample プロジェクト共通の Dialog Presenter 基底。
-	/// <see cref="SamplePresenter{TInput,TOutput,TView}"/> と同様、Services を <see cref="SampleServices"/> 型で参照できる。
+	/// <see cref="SamplePresenter{TInput,TOutput,TView}"/> と同様、
+	/// <see cref="Registry"/> 経由で <see cref="SampleRegistry"/> を参照できる。
 	/// </summary>
 	public abstract class SampleDialogPresenter<TInput, TOutput, TView, TResult>
 		: DialogPresenter<TInput, TOutput, TResult>
@@ -13,6 +14,6 @@ namespace Sample
 		where TView : TInput, TOutput
 		where TResult : IScreenData
 	{
-		protected new SampleServices Services => (SampleServices)base.Services;
+		protected SampleRegistry Registry => (SampleRegistry)Services;
 	}
 }

@@ -2,8 +2,8 @@ using System;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using R3;
+using Sample.Api;
 using Sample.Dialogs;
-using ScreenFramework;
 using UnityEngine;
 
 namespace Sample
@@ -11,7 +11,8 @@ namespace Sample
 	/// <summary>
 	/// ガチャトップ画面の「ヘッダー（所持金表示 + 課金）」を担当する Feature。
 	/// 状態と通信は <see cref="GachaTopModel"/> に集約済みなので、ここでは
-	/// UI orchestration（ダイアログ確認 / エラー表示）と購読しかしない。
+	/// UI orchestration（ダイアログ確認）と購読しかしない。
+	/// 通信エラーダイアログは <see cref="ApiErrorHandler"/> が SystemDialog 側で出す。
 	/// </summary>
 	sealed class MoneyHeaderFeature
 	{
@@ -68,9 +69,11 @@ namespace Sample
 				await _model.Charge(ChargeAmount, CancellationToken.None);
 			}
 			catch (OperationCanceledException) { }
+			catch (ApiException) { /* SystemDialog 表示済み */ }
+			catch (ApiTransportException) { /* SystemDialog 表示済み */ }
 			catch (Exception e)
 			{
-				Debug.LogError($"[MoneyHeaderFeature] charge failed: {e.Message}");
+				Debug.LogError($"[MoneyHeaderFeature] charge failed: {e}");
 			}
 		}
 	}

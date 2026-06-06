@@ -11,15 +11,16 @@ namespace Tests
 {
 	/// <summary>
 	/// <see cref="GachaTopPresenter"/> + 配下の Feature + 実 <see cref="GachaTopModel"/> を
-	/// MockView / MockApiClient / MockScreenNavigator で end-to-end に駆動するテスト。
+	/// MockView / Mock Service / MockScreenNavigator で end-to-end に駆動するテスト。
 	/// Model は real。サブコンポーネントは MockView を個別 new して手繋ぎする。
 	/// </summary>
 	public sealed class GachaTopPresenterTests
 	{
-		MockApiClient _api;
+		MockGachaService _gachaApi;
+		MockUserService _userApi;
 		MockScreenNavigator _pageNav;
 		MockScreenNavigator _dialogNav;
-		SampleServices _services;
+		SampleRegistry _registry;
 		List<IScreenIdentifier> _pushed;
 
 		MockView.Sample.MockGachaTopView _view;
@@ -27,8 +28,9 @@ namespace Tests
 		[SetUp]
 		public void SetUp()
 		{
-			_api = new MockApiClient();
-			_api.GetGachaListFunc = ct => UniTask.FromResult(MakeGachaList());
+			_gachaApi = new MockGachaService();
+			_userApi = new MockUserService();
+			_gachaApi.ListFunc = opt => UniTask.FromResult(MakeGachaList());
 
 			_pushed = new List<IScreenIdentifier>();
 			_pageNav = new MockScreenNavigator
@@ -46,8 +48,13 @@ namespace Tests
 				dialog: _dialogNav,
 				systemDialog: new MockScreenNavigator());
 
-			_services = new SampleServices(useMockViews: true, api: _api);
-			_services.UserData.SetInfo(new UserInfo
+			_registry = new SampleRegistry(
+				useMockViews: true,
+				gacha: _gachaApi,
+				user: _userApi,
+				profile: new MockProfileService(),
+				master: new MockMasterService());
+			_registry.UserData.SetInfo(new UserInfo
 			{
 				UserId = "u1",
 				Name = "x",
@@ -84,7 +91,7 @@ namespace Tests
 			},
 		};
 
-		GachaTopPresenter NewPresenter() => new GachaTopPresenter().WithServices(_services);
+		GachaTopPresenter NewPresenter() => new GachaTopPresenter().WithServices(_registry);
 
 		// ----- Initial render -----
 
@@ -125,7 +132,7 @@ namespace Tests
 			var presenter = (IScreenPresenter)NewPresenter();
 			await ScreenTesting.PushAsync(presenter, _view);
 
-			_services.UserData.SetMoney(2500);
+			_registry.UserData.SetMoney(2500);
 
 			Assert.Contains(2500, moneyValues);
 		}
@@ -136,7 +143,7 @@ namespace Tests
 		public async Task ChargeButton_Confirmed_CallsApi_AndUpdatesMoney()
 		{
 			ChargeRequest captured = null;
-			_api.ChargeMoneyFunc = (req, ct) =>
+			_userApi.ChargeFunc = (req, opt) =>
 			{
 				captured = req;
 				return UniTask.FromResult(new ChargeResponse { money = 2000 });
@@ -151,9 +158,9 @@ namespace Tests
 
 			_view.header.RaiseOnChargeClicked();
 
-			Assert.IsNotNull(captured, "ChargeMoney が呼ばれる");
+			Assert.IsNotNull(captured, "Charge が呼ばれる");
 			Assert.AreEqual(1000, captured.amount, "ChargeAmount=1000 が渡る");
-			Assert.AreEqual(2000, _services.UserData.Money, "Holder.Money が API レスポンスで更新");
+			Assert.AreEqual(2000, _registry.UserData.Money, "Holder.Money が API レスポンスで更新");
 			Assert.Contains(2000, moneyValues, "header.SetMoney(2000) が呼ばれる");
 		}
 
@@ -164,7 +171,7 @@ namespace Tests
 			// 完了で true に戻る一連のシーケンスを観測する。
 			// 最終状態だけ見たければ Mock の auto-property（_view.header.chargeButton.Interactable）で十分だが、
 			// 「途中で false に落ちたこと」を検証したい場面では setter 観測用の OnInteractableSet を使う。
-			_api.ChargeMoneyFunc = (req, ct) => UniTask.FromResult(new ChargeResponse { money = 2000 });
+			_userApi.ChargeFunc = (req, opt) => UniTask.FromResult(new ChargeResponse { money = 2000 });
 			_dialogNav.SetupPushAndAwait<MessageDialogId, MessageDialogResult>(_ => new MessageDialogResult(1));
 
 			var presenter = (IScreenPresenter)NewPresenter();
@@ -186,7 +193,7 @@ namespace Tests
 		public async Task ChargeButton_Cancelled_DoesNotCallApi()
 		{
 			var calls = 0;
-			_api.ChargeMoneyFunc = (req, ct) =>
+			_userApi.ChargeFunc = (req, opt) =>
 			{
 				calls++;
 				return UniTask.FromResult(new ChargeResponse { money = 9999 });
@@ -199,9 +206,9 @@ namespace Tests
 
 			_view.header.RaiseOnChargeClicked();
 
-			Assert.AreEqual(0, calls, "キャンセル時は ChargeMoney 呼ばれない");
+			Assert.AreEqual(0, calls, "キャンセル時は Charge 呼ばれない");
 			Assert.AreEqual(1, _dialogNav.AwaitedIds().Count, "Dialog は開かれている");
-			Assert.AreEqual(1000, _services.UserData.Money, "所持金は変わらない");
+			Assert.AreEqual(1000, _registry.UserData.Money, "所持金は変わらない");
 		}
 
 		// ----- Picker -----
@@ -232,7 +239,7 @@ namespace Tests
 				money = 900,
 			};
 			GachaPullRequest pullReq = null;
-			_api.PullGachaFunc = (req, ct) =>
+			_gachaApi.PullFunc = (req, opt) =>
 			{
 				pullReq = req;
 				return UniTask.FromResult(pullResp);
@@ -247,7 +254,7 @@ namespace Tests
 			Assert.IsNotNull(pullReq);
 			Assert.AreEqual("a", pullReq.gachaId, "現在ガチャ id");
 			Assert.AreEqual(1, pullReq.count);
-			Assert.AreEqual(900, _services.UserData.Money);
+			Assert.AreEqual(900, _registry.UserData.Money);
 
 			// GachaResultScreenId が Push されている
 			Assert.AreEqual(1, _pushed.Count);
@@ -260,7 +267,7 @@ namespace Tests
 		public async Task Pull1Button_Cancelled_DoesNotCallApi_AndDoesNotPush()
 		{
 			var calls = 0;
-			_api.PullGachaFunc = (req, ct) =>
+			_gachaApi.PullFunc = (req, opt) =>
 			{
 				calls++;
 				return UniTask.FromResult(new GachaPullResponse { items = System.Array.Empty<PulledItemResponse>(), money = 0 });
@@ -289,7 +296,7 @@ namespace Tests
 			await ScreenTesting.PopAsync(presenter);
 
 			var countBefore = moneyValues.Count;
-			_services.UserData.SetMoney(9999);
+			_registry.UserData.SetMoney(9999);
 
 			Assert.AreEqual(countBefore, moneyValues.Count,
 				"Unload 後の Holder.SetMoney は Model.Dispose 経由で unsubscribe されているはず");

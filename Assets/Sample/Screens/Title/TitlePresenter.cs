@@ -2,6 +2,8 @@ using System;
 using System.Linq;
 using System.Threading;
 using Cysharp.Threading.Tasks;
+using Sample.Api;
+using Sample.Api.Net;
 using ScreenFramework;
 using UnityEngine;
 
@@ -22,18 +24,19 @@ namespace Sample
 
 			try
 			{
+				var opt = new Options(ct);
 				var (master, userInfo) = await UniTask.WhenAll(
-					Services.Api.GetBootstrapMaster(ct),
-					Services.Api.GetUserInfo(ct));
+					Registry.Master.Bootstrap(opt),
+					Registry.User.Info(opt));
 
-				Services.Items.SetData(master.items.Select(r => new ItemMaster
+				Registry.Items.SetData(master.items.Select(r => new ItemMaster
 				{
 					Id = r.id,
 					Code = r.code,
 					Name = r.name,
 					Rarity = r.rarity,
 				}));
-				Services.UserData.SetInfo(new UserInfo
+				Registry.UserData.SetInfo(new UserInfo
 				{
 					UserId = userInfo.userId,
 					Name = userInfo.name,
@@ -49,10 +52,19 @@ namespace Sample
 			{
 				throw;
 			}
+			catch (ApiException)
+			{
+				// SystemDialog で表示済み。Title はリトライ手段がないので status だけ更新。
+				Out.SetStatus("取得失敗");
+			}
+			catch (ApiTransportException)
+			{
+				Out.SetStatus("取得失敗");
+			}
 			catch (Exception e)
 			{
 				Out.SetStatus($"取得失敗: {e.Message}");
-				Debug.LogError($"[TitlePresenter] bootstrap master fetch failed: {e}");
+				Debug.LogError($"[TitlePresenter] bootstrap fetch failed: {e}");
 			}
 		}
 

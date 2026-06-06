@@ -112,62 +112,79 @@ namespace ScreenFramework
 				await ReplaceCore(id, opt, myCt));
 		}
 
-		public async UniTask Change(IScreenIdentifier id, ChangeOptions opt = default, CancellationToken ct = default)
+		public UniTask Change(IScreenIdentifier id, ChangeOptions opt = default, CancellationToken ct = default)
 		{
-			// 履歴を破棄して新画面 1 枚にする
-			await ClearAllExceptCurrentAsync(ct);
-			await Replace(id, new ReplaceOptions
+			if (id == null) throw new ArgumentNullException(nameof(id));
+			// 複合操作全体を 1 つの Run に閉じる。途中で in-flight の遷移が割り込んで
+			// _history/_live を mutate するのを防ぐ。
+			return Run(opt.InterruptPriority, ct, async myCt =>
 			{
-				Data = opt.Data,
-				TransitionDirector = opt.TransitionDirector,
-				CachePolicyOverride = opt.CachePolicyOverride,
-				ModalOverride = opt.ModalOverride,
-				InterruptPriority = opt.InterruptPriority,
-			}, ct);
+				await ClearAllExceptCurrentAsync(myCt);
+				await ReplaceCore(id, new ReplaceOptions
+				{
+					Data = opt.Data,
+					TransitionDirector = opt.TransitionDirector,
+					CachePolicyOverride = opt.CachePolicyOverride,
+					ModalOverride = opt.ModalOverride,
+				}, myCt);
+			});
 		}
 
-		public async UniTask Reset(IScreenIdentifier id, ResetOptions opt = default, CancellationToken ct = default)
+		public UniTask Reset(IScreenIdentifier id, ResetOptions opt = default, CancellationToken ct = default)
 		{
-			await DismissAll(ct);
-			await Push(id, new PushOptions
+			if (id == null) throw new ArgumentNullException(nameof(id));
+			return Run(opt.InterruptPriority, ct, async myCt =>
 			{
-				Data = opt.Data,
-				TransitionDirector = opt.TransitionDirector,
-				CachePolicyOverride = opt.CachePolicyOverride,
-				ModalOverride = opt.ModalOverride,
-				InterruptPriority = opt.InterruptPriority,
-			}, ct);
+				await DismissAllInternal(myCt);
+				await PushCore(id, new PushOptions
+				{
+					Data = opt.Data,
+					TransitionDirector = opt.TransitionDirector,
+					CachePolicyOverride = opt.CachePolicyOverride,
+					ModalOverride = opt.ModalOverride,
+				}, resultSource: null, myCt);
+			});
 		}
 
-		public async UniTask PopTo(Func<IScreenIdentifier, bool> predicate, PopToOptions opt = default, CancellationToken ct = default)
+		public UniTask PopTo(Func<IScreenIdentifier, bool> predicate, PopToOptions opt = default, CancellationToken ct = default)
 		{
 			if (predicate == null) throw new ArgumentNullException(nameof(predicate));
-			var targetIndex = -1;
-			for (var i = _history.Count - 1; i >= 0; i--)
+			return Run(opt.InterruptPriority, ct, async myCt =>
 			{
-				if (predicate(_history[i])) { targetIndex = i; break; }
-			}
-			if (targetIndex < 0 || targetIndex == _history.Count - 1) return;
-
-			for (var i = _history.Count - 2; i > targetIndex; i--)
-			{
-				if (_live[i] != null)
+				var targetIndex = -1;
+				for (var i = _history.Count - 1; i >= 0; i--)
 				{
-					await ExitPreviousAsync(_live[i], ScreenCacheMode.DestroyOnCover, isPop: true, CancellationToken.None);
-					DestroyBlockerIfAny(_live[i]);
+					if (predicate(_history[i])) { targetIndex = i; break; }
 				}
-				_live.RemoveAt(i);
-				_history.RemoveAtInternal(i);
-			}
+				if (targetIndex < 0 || targetIndex == _history.Count - 1) return;
 
-			await Pop(new PopOptions
-			{
-				TransitionDirector = opt.TransitionDirector,
-				InterruptPriority = opt.InterruptPriority,
-			}, ct);
+				for (var i = _history.Count - 2; i > targetIndex; i--)
+				{
+					if (_live[i] != null)
+					{
+						await ExitPreviousAsync(_live[i], ScreenCacheMode.DestroyOnCover, isPop: true, CancellationToken.None);
+						DestroyBlockerIfAny(_live[i]);
+					}
+					_live.RemoveAt(i);
+					_history.RemoveAtInternal(i);
+				}
+
+				await PopCore(new PopOptions
+				{
+					TransitionDirector = opt.TransitionDirector,
+				}, myCt);
+			});
 		}
 
-		public async UniTask DismissAll(CancellationToken ct = default)
+		public UniTask DismissAll(CancellationToken ct = default)
+		{
+			return Run(InterruptPriority.Preempt, ct, async myCt =>
+			{
+				await DismissAllInternal(myCt);
+			});
+		}
+
+		async UniTask DismissAllInternal(CancellationToken ct)
 		{
 			while (_history.Count > 0)
 			{

@@ -14,10 +14,11 @@ namespace ScreenFramework
 		readonly ScreenHistory _history = new();
 		readonly List<LiveEntry> _live = new();   // parallel to _history; null = dormant
 
-		// Preempt 用：現在進行中の遷移の CTS と完了シグナル
+		// Preempt 用：FIFO チェーンの全 pending CTS と最新の完了シグナル。
 		// UniTask は単一 await 設計のため、複数の後続が完了を観測できるよう
-		// UniTaskCompletionSource を完了シグナルとして使う
-		CancellationTokenSource _currentCts;
+		// UniTaskCompletionSource を完了シグナルとして使う。
+		// Preempt は自分より前の pending を全てキャンセルするためリストで保持する。
+		readonly List<CancellationTokenSource> _pendingCtses = new();
 		UniTaskCompletionSource _currentDoneSignal; // null なら走っていない
 
 		public IScreenHistory History => _history;
@@ -187,13 +188,28 @@ namespace ScreenFramework
 
 		async UniTask Run(InterruptPriority priority, CancellationToken externalCt, Func<CancellationToken, UniTask> body)
 		{
-			// 直前の遷移の状態をキャプチャ
-			var prevCts = _currentCts;
+			// await の「前」に自分をインストールする。こうしないと A 実行中に B, C が連続到着したとき、
+			// B も C も同じ prevDone (=signalA) をキャプチャして待ち、A 完走で両方同時に resume → body 並走になる。
+			// 先に自己インストールしておけば C は signalB をキャプチャして FIFO で繋がる。
 			var prevDone = _currentDoneSignal;
+			var myCts = CancellationTokenSource.CreateLinkedTokenSource(externalCt);
+			var myDone = new UniTaskCompletionSource();
+			_pendingCtses.Add(myCts);
+			_currentDoneSignal = myDone;
+			IsTransitioning = true;
 
 			if (priority == InterruptPriority.Preempt)
 			{
-				prevCts?.Cancel();
+				// 自分以外の全 pending を「自分の直前から逆順に」キャンセルする。
+				// 順方向だと最古 (ctsA) の Cancel が UniTask の同期 continuation を引き起こし、
+				// 次に並んでいる B の Run が body 直前の ThrowIfCancellationRequested を通過した後に
+				// ctsB の Cancel が回ってくる順序になり、B が Load を始めて永久待機する。
+				// 逆順なら B が先にキャンセル状態になり、A の Cancel の同期再入で B が resume しても
+				// ThrowIfCancellationRequested(ctsB) で確実に落ちる。
+				for (var i = _pendingCtses.Count - 2; i >= 0; i--)
+				{
+					_pendingCtses[i].Cancel();
+				}
 			}
 			// 直前の遷移の完走を待つ（完了シグナル）
 			if (prevDone != null)
@@ -203,14 +219,10 @@ namespace ScreenFramework
 				catch { /* 前遷移のエラーは握り潰す（自分とは別件） */ }
 			}
 
-			var myCts = CancellationTokenSource.CreateLinkedTokenSource(externalCt);
-			var myDone = new UniTaskCompletionSource();
-			_currentCts = myCts;
-			_currentDoneSignal = myDone;
-			IsTransitioning = true;
-
 			try
 			{
+				// 待機中に後続から preempt されていた場合は body を呼ばずに抜ける
+				myCts.Token.ThrowIfCancellationRequested();
 				await body(myCts.Token);
 				myDone.TrySetResult();
 			}
@@ -226,11 +238,11 @@ namespace ScreenFramework
 			}
 			finally
 			{
-				// 自分が最新のままなら状態クリア（後続に preempt されていたら触らない）
-				if (ReferenceEquals(_currentCts, myCts))
+				_pendingCtses.Remove(myCts);
+				// 自分が最新のままなら状態クリア（後続が積まれていたら触らない）
+				if (ReferenceEquals(_currentDoneSignal, myDone))
 				{
 					IsTransitioning = false;
-					_currentCts = null;
 					_currentDoneSignal = null;
 				}
 				myCts.Dispose();

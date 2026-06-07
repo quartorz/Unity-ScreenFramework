@@ -14,14 +14,18 @@ namespace Sample
 	{
 		bool _ready;
 
-		protected override async UniTask OnAfterLoad(IScreenDataReader reader, CancellationToken ct)
+		protected override UniTask OnAfterLoad(IScreenDataReader reader, CancellationToken ct)
 		{
 			Debug.Log("[TitlePresenter] OnAfterLoad");
 			Out.SetTitle("MockView Sample");
 			Out.SetStartButtonInteractable(false);
 			Out.SetStatus("起動データを取得中...");
 			In.OnStartClicked += OnStart;
+			return UniTask.CompletedTask;
+		}
 
+		protected override async UniTask OnAfterEnter(IScreenDataReader reader, CancellationToken ct)
+		{
 			try
 			{
 				var opt = new Options(ct);

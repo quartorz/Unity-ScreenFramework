@@ -94,7 +94,7 @@ namespace Tests
 			_profileApi.PostFunc = (req, opt) =>
 			{
 				posted = req;
-				return UniTask.FromResult(new ProfileResponse
+				return AsyncTestHelper.Return(new ProfileResponse
 				{
 					userId = req.userId,
 					name   = req.name,
@@ -109,6 +109,7 @@ namespace Tests
 			await ScreenTesting.PushAsync(presenter, _view);
 
 			_view.RaiseOnEditNameClicked();
+			await UniTask.WaitUntil(() => lastName == "New");
 
 			Assert.IsNotNull(observedId, "Dialog の PushAndAwait が呼ばれていない");
 			Assert.AreEqual("Old", observedId.InitialText, "現在の名前が initial として渡される");
@@ -135,13 +136,14 @@ namespace Tests
 			_profileApi.PostFunc = (dto, opt) =>
 			{
 				postCount++;
-				return UniTask.FromResult(new ProfileResponse { userId = dto.userId, name = dto.name, level = dto.level });
+				return AsyncTestHelper.Return(new ProfileResponse { userId = dto.userId, name = dto.name, level = dto.level });
 			};
 
 			var presenter = (IScreenPresenter)NewPresenter();
 			await ScreenTesting.PushAsync(presenter, _view);
 
 			_view.RaiseOnEditNameClicked();
+			for (var i = 0; i < 5; i++) await UniTask.Yield();
 
 			Assert.AreEqual(0, postCount, "キャンセル時は Post しない");
 			Assert.AreEqual(1, _dialogNav.AwaitedIds().Count, "Dialog は開かれている");
@@ -181,6 +183,7 @@ namespace Tests
 			await ScreenTesting.PopAsync(presenter);
 
 			_view.RaiseOnEditNameClicked();
+			for (var i = 0; i < 5; i++) await UniTask.Yield();
 
 			Assert.AreEqual(0, _dialogNav.AwaitedIds().Count, "Unload 後に Edit クリックが leak しないこと");
 		}
@@ -273,7 +276,7 @@ namespace Tests
 			_profileApi.PostFunc = (req, opt) =>
 			{
 				postCalls++;
-				return UniTask.FromException<ProfileResponse>(new ApiException(409, null, null, "conflict"));
+				return AsyncTestHelper.Throw<ProfileResponse>(new ApiException(409, null, null, "conflict"));
 			};
 
 			var savingStates = new System.Collections.Generic.List<bool>();
@@ -285,6 +288,7 @@ namespace Tests
 			await ScreenTesting.PushAsync(presenter, _view);
 
 			_view.RaiseOnEditNameClicked();
+			await UniTask.WaitUntil(() => savingStates.Count >= 4);
 
 			Assert.AreEqual(1, postCalls);
 			// 初期 true→false（fetch）、edit 開始 true→失敗で false
@@ -293,6 +297,7 @@ namespace Tests
 
 			// busy フラグが解除されたことを「もう一度クリックで Post が呼ばれる」で確認
 			_view.RaiseOnEditNameClicked();
+			await UniTask.WaitUntil(() => postCalls >= 2);
 			Assert.AreEqual(2, postCalls, "busy が解除されているので 2 回目の編集が走る");
 		}
 
@@ -309,8 +314,7 @@ namespace Tests
 			_profileApi.PostFunc = (req, opt) =>
 			{
 				postCalls++;
-				return UniTask.FromException<ProfileResponse>(
-					new ApiTransportException(TransportFailure.Timeout, "timeout"));
+				return AsyncTestHelper.Throw<ProfileResponse>(new ApiTransportException(TransportFailure.Timeout, "timeout"));
 			};
 
 			UnityEngine.TestTools.LogAssert.ignoreFailingMessages = true;
@@ -319,10 +323,14 @@ namespace Tests
 			await ScreenTesting.PushAsync(presenter, _view);
 
 			_view.RaiseOnEditNameClicked();
+			await UniTask.WaitUntil(() => postCalls >= 1);
+			// busy 解除を待つ。Post 失敗後の finally 完了まで Pump する。
+			for (var i = 0; i < 5; i++) await UniTask.Yield();
 
 			Assert.AreEqual(1, postCalls);
 
 			_view.RaiseOnEditNameClicked();
+			await UniTask.WaitUntil(() => postCalls >= 2);
 			Assert.AreEqual(2, postCalls, "Transport 失敗後も busy 解除されて再試行できる");
 		}
 
@@ -339,18 +347,21 @@ namespace Tests
 			_profileApi.PostFunc = (req, opt) =>
 			{
 				postCalls++;
-				return UniTask.FromCanceled<ProfileResponse>(
-					new System.Threading.CancellationToken(canceled: true));
+				return AsyncTestHelper.Throw<ProfileResponse>(
+					new OperationCanceledException(new System.Threading.CancellationToken(canceled: true)));
 			};
 
 			var presenter = (IScreenPresenter)NewPresenter();
 			await ScreenTesting.PushAsync(presenter, _view);
 
 			_view.RaiseOnEditNameClicked();
+			await UniTask.WaitUntil(() => postCalls >= 1);
+			for (var i = 0; i < 5; i++) await UniTask.Yield();
 
 			Assert.AreEqual(1, postCalls);
 
 			_view.RaiseOnEditNameClicked();
+			await UniTask.WaitUntil(() => postCalls >= 2);
 			Assert.AreEqual(2, postCalls, "OCE 後も busy 解除されて再試行できる");
 		}
 	}

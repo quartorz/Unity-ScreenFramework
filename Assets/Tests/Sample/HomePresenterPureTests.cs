@@ -31,7 +31,7 @@ namespace Tests
 				PushFunc = (id, opt, ct) =>
 				{
 					_pushedIds.Add(id);
-					return UniTask.FromResult<IScreenEntry>(null);
+					return AsyncTestHelper.Return<IScreenEntry>(null);
 				},
 			};
 
@@ -80,6 +80,7 @@ namespace Tests
 			await ScreenTesting.PushAsync(presenter, _view);
 
 			_view.goProfile.RaiseOnClicked();
+			await UniTask.WaitUntil(() => _pushedIds.Count >= 1);
 
 			Assert.AreEqual(1, _pushedIds.Count);
 			var profile = _pushedIds[0] as ProfileScreenId;
@@ -95,6 +96,8 @@ namespace Tests
 			await ScreenTesting.PopAsync(presenter);
 
 			_view.goGacha.RaiseOnClicked();
+			// イベントが leak していれば Forget チェーンが Push を呼ぶ → drain で観測する
+			for (var i = 0; i < 5; i++) await UniTask.Yield();
 
 			Assert.AreEqual(0, _pushedIds.Count, "Unload 後にイベントが leak しないこと");
 		}

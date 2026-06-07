@@ -30,7 +30,7 @@ namespace Tests
 		{
 			_gachaApi = new MockGachaService();
 			_userApi = new MockUserService();
-			_gachaApi.ListFunc = opt => UniTask.FromResult(MakeGachaList());
+			_gachaApi.ListFunc = opt => AsyncTestHelper.Return(MakeGachaList());
 
 			_pushed = new List<IScreenIdentifier>();
 			_pageNav = new MockScreenNavigator
@@ -38,7 +38,7 @@ namespace Tests
 				PushFunc = (id, opt, ct) =>
 				{
 					_pushed.Add(id);
-					return UniTask.FromResult<IScreenEntry>(null);
+					return AsyncTestHelper.Return<IScreenEntry>(null);
 				},
 			};
 			_dialogNav = new MockScreenNavigator();
@@ -146,7 +146,7 @@ namespace Tests
 			_userApi.ChargeFunc = (req, opt) =>
 			{
 				captured = req;
-				return UniTask.FromResult(new ChargeResponse { money = 2000 });
+				return AsyncTestHelper.Return(new ChargeResponse { money = 2000 });
 			};
 			_dialogNav.SetupPushAndAwait<MessageDialogId, MessageDialogResult>(_ => new MessageDialogResult(1));
 
@@ -157,6 +157,7 @@ namespace Tests
 			await ScreenTesting.PushAsync(presenter, _view);
 
 			_view.header.RaiseOnChargeClicked();
+			await UniTask.WaitUntil(() => _registry.UserData.Money == 2000);
 
 			Assert.IsNotNull(captured, "Charge が呼ばれる");
 			Assert.AreEqual(1000, captured.amount, "ChargeAmount=1000 が渡る");
@@ -171,7 +172,7 @@ namespace Tests
 			// 完了で true に戻る一連のシーケンスを観測する。
 			// 最終状態だけ見たければ Mock の auto-property（_view.header.chargeButton.Interactable）で十分だが、
 			// 「途中で false に落ちたこと」を検証したい場面では setter 観測用の OnInteractableSet を使う。
-			_userApi.ChargeFunc = (req, opt) => UniTask.FromResult(new ChargeResponse { money = 2000 });
+			_userApi.ChargeFunc = (req, opt) => AsyncTestHelper.Return(new ChargeResponse { money = 2000 });
 			_dialogNav.SetupPushAndAwait<MessageDialogId, MessageDialogResult>(_ => new MessageDialogResult(1));
 
 			var presenter = (IScreenPresenter)NewPresenter();
@@ -182,6 +183,7 @@ namespace Tests
 			_view.header.chargeButton.OnInteractableSet = b => transitions.Add(b);
 
 			_view.header.RaiseOnChargeClicked();
+			await UniTask.WaitUntil(() => transitions.Count >= 2);
 
 			// Charge 開始で false → 完了で true（OK の試行を含めて Busy が true→false 遷移）
 			Assert.AreEqual(new[] { false, true }, transitions.ToArray(),
@@ -196,7 +198,7 @@ namespace Tests
 			_userApi.ChargeFunc = (req, opt) =>
 			{
 				calls++;
-				return UniTask.FromResult(new ChargeResponse { money = 9999 });
+				return AsyncTestHelper.Return(new ChargeResponse { money = 9999 });
 			};
 			// Cancel 相当（SetResult されない）
 			_dialogNav.TrackPushAndAwait<MessageDialogId, MessageDialogResult>();
@@ -205,6 +207,8 @@ namespace Tests
 			await ScreenTesting.PushAsync(presenter, _view);
 
 			_view.header.RaiseOnChargeClicked();
+			// dialog がキャンセル相当（default 返し）なので API は呼ばれない想定。drain して観測。
+			for (var i = 0; i < 5; i++) await UniTask.Yield();
 
 			Assert.AreEqual(0, calls, "キャンセル時は Charge 呼ばれない");
 			Assert.AreEqual(1, _dialogNav.AwaitedIds().Count, "Dialog は開かれている");
@@ -225,6 +229,8 @@ namespace Tests
 			await ScreenTesting.PushAsync(presenter, _view);
 
 			_view.nextButton.RaiseOnClicked();
+			// MoveTo は同期だが、await を 1 個挟んで「同期前提を書かない」スタイルに揃える
+			for (var i = 0; i < 5; i++) await UniTask.Yield();
 
 			Assert.Contains("ガチャB", names, "次ガチャへ切り替わる");
 			Assert.Contains((1, 3), indices);
@@ -242,7 +248,7 @@ namespace Tests
 			_gachaApi.PullFunc = (req, opt) =>
 			{
 				pullReq = req;
-				return UniTask.FromResult(pullResp);
+				return AsyncTestHelper.Return(pullResp);
 			};
 			_dialogNav.SetupPushAndAwait<MessageDialogId, MessageDialogResult>(_ => new MessageDialogResult(1));
 
@@ -250,6 +256,7 @@ namespace Tests
 			await ScreenTesting.PushAsync(presenter, _view);
 
 			_view.pull1Button.RaiseOnClicked();
+			await UniTask.WaitUntil(() => _pushed.Count >= 1);
 
 			Assert.IsNotNull(pullReq);
 			Assert.AreEqual("a", pullReq.gachaId, "現在ガチャ id");
@@ -270,7 +277,7 @@ namespace Tests
 			_gachaApi.PullFunc = (req, opt) =>
 			{
 				calls++;
-				return UniTask.FromResult(new GachaPullResponse { items = System.Array.Empty<PulledItemResponse>(), money = 0 });
+				return AsyncTestHelper.Return(new GachaPullResponse { items = System.Array.Empty<PulledItemResponse>(), money = 0 });
 			};
 			_dialogNav.TrackPushAndAwait<MessageDialogId, MessageDialogResult>();
 
@@ -278,6 +285,7 @@ namespace Tests
 			await ScreenTesting.PushAsync(presenter, _view);
 
 			_view.pull1Button.RaiseOnClicked();
+			for (var i = 0; i < 5; i++) await UniTask.Yield();
 
 			Assert.AreEqual(0, calls);
 			Assert.AreEqual(0, _pushed.Count, "結果画面 Push されない");

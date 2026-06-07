@@ -54,7 +54,7 @@ namespace Tests
 			_pageNav.ChangeFunc = (id, opt, ct) =>
 			{
 				_changedIds.Add(id);
-				return UniTask.CompletedTask;
+				return AsyncTestHelper.Done();
 			};
 
 			ScreenNavigator.Override(
@@ -165,15 +165,16 @@ namespace Tests
 			await ScreenTesting.PushAsync(presenter, _view);
 
 			_view.RaiseOnStartClicked();
+			await UniTask.WaitUntil(() => _changedIds.Count >= 1);
 
 			Assert.AreEqual(1, _changedIds.Count);
 			Assert.IsInstanceOf<HomeScreenId>(_changedIds[0]);
 		}
 
 		[Test]
-		public void StartClick_BeforeReady_DoesNothing()
+		public async Task StartClick_BeforeReady_DoesNothing()
 		{
-			// 完了させないために TCS で OnAfterLoad の await を手前で止める
+			// 完了させないために TCS で OnAfterEnter の await を手前で止める
 			var tcs = new UniTaskCompletionSource<BootstrapMasterResponse>();
 			_masterApi.BootstrapFunc = opt => tcs.Task;
 
@@ -181,6 +182,8 @@ namespace Tests
 			ScreenTesting.PushAsync(presenter, _view).Forget(); // 起動だけ
 
 			_view.RaiseOnStartClicked();
+			// Forget チェーンが万一走るなら drain で観測する
+			for (var i = 0; i < 5; i++) await UniTask.Yield();
 
 			Assert.AreEqual(0, _changedIds.Count, "ready 前の click では遷移しない");
 
@@ -198,6 +201,7 @@ namespace Tests
 			await ScreenTesting.PopAsync(presenter);
 
 			_view.RaiseOnStartClicked();
+			for (var i = 0; i < 5; i++) await UniTask.Yield();
 
 			Assert.AreEqual(0, _changedIds.Count, "Unload 後の click が leak しないこと");
 		}

@@ -601,7 +601,11 @@ namespace ScreenFramework
 				// OCE / 非 OCE どちらでも handle を解放してから元の例外で抜ける。
 				// Load パイプライン（OnBeforeLoad / handle.Load / OnAfterLoad）の失敗を
 				// 利用側に OCE 詰め替えさせないため、catch (Exception) で受ける。
+				// 正常退場と symmetry を取って OnAfterUnload も呼ぶ。
+				// （OnAfterLoad の途中で張った購読の補償フックを画面側に与える）
 				try { await handle.Unload(CancellationToken.None); }
+				catch { /* cleanup 中のエラーは握り潰す */ }
+				try { await presenter.OnAfterUnload(pushStore, CancellationToken.None); }
 				catch { /* cleanup 中のエラーは握り潰す */ }
 				throw;
 			}

@@ -14,6 +14,7 @@ namespace ScreenFramework
 	{
 		readonly object _key;
 		GameObject _instance;
+		AsyncOperationHandle<GameObject> _handle;
 
 		public AddressableScreenHandle(object key)
 		{
@@ -22,17 +23,17 @@ namespace ScreenFramework
 
 		public async UniTask<IScreenViewInstance> Load(IProgress<float> progress, CancellationToken ct)
 		{
-			var op = Addressables.InstantiateAsync(_key);
-			while (!op.IsDone)
+			_handle = Addressables.InstantiateAsync(_key);
+			while (!_handle.IsDone)
 			{
-				progress?.Report(op.PercentComplete);
+				progress?.Report(_handle.PercentComplete);
 				await UniTask.Yield(PlayerLoopTiming.Update, ct);
 			}
-			if (op.Status != AsyncOperationStatus.Succeeded)
+			if (_handle.Status != AsyncOperationStatus.Succeeded)
 			{
 				throw new InvalidOperationException($"Failed to load Addressable: {_key}");
 			}
-			_instance = op.Result;
+			_instance = _handle.Result;
 			return new PrefabScreenViewInstance(_instance);
 		}
 
@@ -42,6 +43,10 @@ namespace ScreenFramework
 			{
 				Addressables.ReleaseInstance(_instance);
 				_instance = null;
+			}
+			else if (_handle.IsValid())
+			{
+				Addressables.Release(_handle);
 			}
 			return UniTask.CompletedTask;
 		}

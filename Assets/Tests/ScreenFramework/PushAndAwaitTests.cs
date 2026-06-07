@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Threading;
+using System.Threading.Tasks;
 using Cysharp.Threading.Tasks;
 using NUnit.Framework;
 using ScreenFramework;
@@ -137,6 +138,105 @@ namespace Tests
 			var a = await taskA;
 			Assert.AreEqual("AAA", a.Text);
 		});
+
+		// =====================================================================
+		// 項目 5: Dialog レイヤーの DestroyOnCover × PushAndAwait
+		// =====================================================================
+
+		[Test]
+		public async Task DialogFromDialog_DestroyOnCover_AwaiterDies_BehaviorSpec()
+		{
+			// フレームワークの挙動仕様: Cover + DestroyOnCover の設定下では、
+			// PushAndAwait 中のダイアログ A 上に B を Push すると、A の awaiter は
+			// TrySetCanceled されて OCE で死ぬ。これは仕様通り。
+			// 「ダイアログからダイアログ」を成立させたい場合は KeepOnCover を使うこと
+			// (下の DialogFromDialog_KeepOnCover_AwaiterSurvivesUntilOwnPop 参照)。
+			await ScreenNavigator.Dialog.Push(new PlainScreenId());
+			var awaitA = ScreenNavigator.Dialog.PushAndAwait(new EchoDialogId("A"));
+			await UniTask.Yield();
+
+			await ScreenNavigator.Dialog.Push(new PlainScreenId());
+
+			OperationCanceledException oce = null;
+			try { await awaitA; }
+			catch (OperationCanceledException e) { oce = e; }
+
+			Assert.IsNotNull(oce, "DestroyOnCover では下の awaiter は OCE で死ぬ仕様");
+		}
+
+		[Test]
+		public async Task DialogFromDialog_KeepOnCover_AwaiterSurvivesUntilOwnPop()
+		{
+			// Dialog を Cover + KeepOnCover にすると「ダイアログからダイアログ」が成立する。
+			// 下のダイアログは Suspend され、上のダイアログを Pop すると下の awaiter は
+			// 自分が Pop されるときに正規 resolve される。
+			Object.DestroyImmediate(((MonoBehaviour)_pageContainer).gameObject);
+			_pageContainer = NewContainer("PageRoot");
+			var dialogContainer = NewContainer("DlgRoot2");
+			ScreenNavigator.Initialize(new TestServices(), new ScreenLayerSetup
+			{
+				Page = NewLayer(_pageContainer),
+				Dialog = new ScreenLayerConfig
+				{
+					Container = dialogContainer,
+					DefaultCacheMode = ScreenCacheMode.KeepOnCover,
+					StackMode = StackMode.Cover,
+					StackInputPolicy = StackInputPolicy.BlockUnderlying,
+					DefaultModal = true,
+					DefaultTransition = ImmediateTransition.Instance,
+				},
+				SystemDialog = NewLayer(NewContainer("SysRoot2")),
+			});
+
+			await ScreenNavigator.Dialog.Push(new PlainScreenId());
+			var awaitA = ScreenNavigator.Dialog.PushAndAwait(new EchoDialogId("A"));
+			await UniTask.Yield();
+
+			await ScreenNavigator.Dialog.Push(new PlainScreenId());
+			await ScreenNavigator.Dialog.Pop();
+
+			await ScreenNavigator.Dialog.Pop();
+			var result = await awaitA;
+			Assert.IsNotNull(result);
+			Assert.AreEqual("A", result.Text);
+		}
+
+		// =====================================================================
+		// 項目 6: PushAndAwait の待機部に ct は効かない(仕様)
+		// =====================================================================
+
+		[Test]
+		public async Task ExternalCt_DoesNotCancelWaitPhase_ByDesign()
+		{
+			// 仕様: ct は Push フェーズ(ロールバック可能ゾーン)のみ作用する。
+			// Push が「コミット」された後の結果待ちフェーズは ct で抜けない。
+			// 抜けたいときはダイアログを Pop するか、上位で別遷移を発行して preempt する。
+			await ScreenNavigator.Page.Push(new PlainScreenId());
+
+			using var cts = new CancellationTokenSource();
+			var task = ScreenNavigator.Page.PushAndAwait(new EchoDialogId(text: null), default, cts.Token);
+
+			var done = false;
+			OperationCanceledException caughtOce = null;
+			UniTask.Void(async () =>
+			{
+				try { await task; }
+				catch (OperationCanceledException e) { caughtOce = e; }
+				done = true;
+			});
+
+			for (var i = 0; i < 5; i++) await UniTask.Yield();
+			Assert.IsFalse(done, "Push 完了後、SetResult を待っている状態のはず");
+
+			cts.Cancel();
+			for (var i = 0; i < 10; i++) await UniTask.Yield();
+			Assert.IsFalse(done, "ct Cancel しても wait phase は抜けない仕様");
+
+			await ScreenNavigator.Page.Pop();
+			for (var i = 0; i < 5; i++) await UniTask.Yield();
+			Assert.IsTrue(done, "Pop で wait phase が解決する");
+			Assert.IsNull(caughtOce, "正常 Pop なので OCE は出ない");
+		}
 
 		// ---- ヘルパー ----
 

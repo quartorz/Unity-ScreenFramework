@@ -46,7 +46,11 @@ namespace Sample
 				Dialog = new ScreenLayerConfig
 				{
 					Container = _dialogContainer,
-					DefaultCacheMode = ScreenCacheMode.DestroyOnCover,
+					// Cover + DestroyOnCover だと PushAndAwait 中のダイアログから別ダイアログを開いた瞬間、
+					// 下のダイアログの awaiter が TrySetCanceled → OCE で死ぬ(framework 仕様)。
+					// 「ダイアログからダイアログ」は普通の要求なので KeepOnCover で寝かせて、
+					// 上が閉じたら自分の Pop で正常 resolve させる。
+					DefaultCacheMode = ScreenCacheMode.KeepOnCover,
 					StackMode = StackMode.Cover,
 					StackInputPolicy = StackInputPolicy.BlockUnderlying,
 					DefaultModal = true,

@@ -20,6 +20,12 @@ namespace ScreenFramework
 		/// 結果を返すダイアログ向け Push。エントリが閉じるまで await される。
 		/// 結果未書き込みで閉じた場合は default(TResult)、preempt や DismissAll 等で
 		/// 自分のエントリが破棄された場合は OperationCanceledException。
+		/// <para>
+		/// <paramref name="ct"/> は Push フェーズ（ロールバック可能ゾーン）にのみ作用する。
+		/// Push が完了した後の結果待ちフェーズは ct でキャンセルできない仕様。
+		/// 結果待ちを抜けたい場合はダイアログ側を Pop / Close するか、上位レイヤーで
+		/// 別の遷移を発行して preempt する（OCE で抜ける）。
+		/// </para>
 		/// </summary>
 		UniTask<TResult> PushAndAwait<TResult>(ScreenIdentifier<TResult> id, PushOptions opt = default, CancellationToken ct = default)
 			where TResult : IScreenData;

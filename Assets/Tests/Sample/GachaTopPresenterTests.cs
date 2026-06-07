@@ -58,18 +58,7 @@ namespace Tests.Sample
 				Money = 1000,
 			});
 
-			_view = new MockView.Sample.MockGachaTopView
-			{
-				header = new MockView.Sample.MockGachaTopHeaderView
-				{
-					chargeButton = new MockView.Sample.MockSampleButton(),
-				},
-				prevButton = new MockView.Sample.MockSampleButton(),
-				nextButton = new MockView.Sample.MockSampleButton(),
-				pull1Button = new MockView.Sample.MockSampleButton(),
-				pull10Button = new MockView.Sample.MockSampleButton(),
-				backButton = new MockView.Sample.MockSampleButton(),
-			};
+			_view = new MockView.Sample.MockGachaTopView();
 
 			// 触る Func の no-op 既定（NRE 回避）
 			_view.SetGachaNameFunc = _ => { };

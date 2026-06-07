@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Threading.Tasks;
 using Cysharp.Threading.Tasks;
 using NUnit.Framework;
@@ -6,8 +6,9 @@ using Sample;
 using Sample.Api;
 using Sample.Dialogs;
 using ScreenFramework;
+using Tests.Support;
 
-namespace Tests
+namespace Tests.Sample
 {
 	/// <summary>
 	/// <see cref="GachaTopPresenter"/> + 配下の Feature + 実 <see cref="GachaTopModel"/> を

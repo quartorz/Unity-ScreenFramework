@@ -1,6 +1,6 @@
-using ScreenFramework;
+﻿using ScreenFramework;
 
-namespace Tests
+namespace Tests.Support
 {
 	/// <summary>
 	/// IScreenNavigator のモック実装。MockGenerator が partial を埋めて

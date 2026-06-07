@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using Cysharp.Threading.Tasks;
 using NUnit.Framework;
@@ -6,8 +6,9 @@ using Sample;
 using Sample.Api;
 using Sample.Dialogs;
 using ScreenFramework;
+using Tests.Support;
 
-namespace Tests
+namespace Tests.Sample
 {
 	/// <summary>
 	/// ProfilePresenter を GameObject 一切無しで単体テスト。

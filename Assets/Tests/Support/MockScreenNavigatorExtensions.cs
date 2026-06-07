@@ -1,10 +1,10 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using ScreenFramework;
 
-namespace Tests
+namespace Tests.Support
 {
 	/// <summary>
 	/// <see cref="MockScreenNavigator"/> でジェネリックな <c>PushAndAwait&lt;TResult&gt;</c> をモックする際の補助。

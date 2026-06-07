@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,7 +9,7 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using Object = UnityEngine.Object;
 
-namespace Tests
+namespace Tests.ScreenFramework
 {
 	/// <summary>
 	/// PushAndAwait&lt;TResult&gt; が DialogPresenter.SetResult の値を受け取り、

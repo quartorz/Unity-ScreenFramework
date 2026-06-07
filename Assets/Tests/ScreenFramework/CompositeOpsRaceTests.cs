@@ -1,11 +1,12 @@
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using Cysharp.Threading.Tasks;
 using NUnit.Framework;
 using ScreenFramework;
-using static Tests.ScreenTestFixtures;
 
-namespace Tests
+namespace Tests.ScreenFramework
 {
+	using static ScreenTestFixtures;
+
 	/// <summary>
 	/// 複合操作 (Change / PopTo / DismissAll) が in-flight な遷移と並走したときに
 	/// `_history` / `_live` の整合性を保つことを検証する。

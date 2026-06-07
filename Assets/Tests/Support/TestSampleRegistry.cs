@@ -1,7 +1,7 @@
-using Sample;
+﻿using Sample;
 using Sample.Api;
 
-namespace Tests
+namespace Tests.Support
 {
 	/// <summary>
 	/// テストで <see cref="SampleRegistry"/> を組み立てるためのヘルパ。

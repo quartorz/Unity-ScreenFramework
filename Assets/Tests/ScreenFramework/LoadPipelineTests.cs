@@ -1,11 +1,12 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using NUnit.Framework;
 using ScreenFramework;
-using static Tests.ScreenTestFixtures;
 
-namespace Tests
+namespace Tests.ScreenFramework
 {
+	using static ScreenTestFixtures;
+
 	/// <summary>
 	/// Load パイプライン(OnBeforeLoad / handle.Load / OnAfterLoad)の失敗時の挙動を検証する。
 	/// 修正方針: CreateAndPreloadAsync は OCE/非OCE どちらでも handle.Unload + presenter.OnAfterUnload を

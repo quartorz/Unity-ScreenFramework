@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Cysharp.Threading.Tasks;
@@ -6,8 +6,9 @@ using NUnit.Framework;
 using R3;
 using Sample;
 using Sample.Api;
+using Tests.Support;
 
-namespace Tests
+namespace Tests.Sample
 {
 	/// <summary>
 	/// <see cref="GachaTopModel"/> の純粋 unit テスト。View / Navigator / Framework なし。

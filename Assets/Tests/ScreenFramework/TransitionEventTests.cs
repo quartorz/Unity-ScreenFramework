@@ -1,11 +1,12 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Threading.Tasks;
 using NUnit.Framework;
 using ScreenFramework;
-using static Tests.ScreenTestFixtures;
 
-namespace Tests
+namespace Tests.ScreenFramework
 {
+	using static ScreenTestFixtures;
+
 	/// <summary>
 	/// <see cref="IScreenNavigator.OnTransitionStart"/> / <see cref="IScreenNavigator.OnTransitionEnd"/> が
 	/// 各 public API の caller intent に対応する <see cref="ScreenTransitionKind"/> で 1 発 fire されることを検証する。

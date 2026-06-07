@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Threading;
 using Cysharp.Threading.Tasks;
@@ -7,8 +7,9 @@ using Sample;
 using ScreenFramework;
 using UnityEngine;
 using UnityEngine.TestTools;
+using Tests.Support;
 
-namespace Tests
+namespace Tests.ScreenFramework
 {
 	/// <summary>
 	/// 進行中の遷移が新しい操作で preempt される挙動を検証する。

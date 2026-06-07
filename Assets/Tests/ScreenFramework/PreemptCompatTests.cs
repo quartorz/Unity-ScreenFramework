@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Threading;
 using Cysharp.Threading.Tasks;
@@ -8,7 +8,7 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using Object = UnityEngine.Object;
 
-namespace Tests
+namespace Tests.ScreenFramework
 {
 	/// <summary>
 	/// Replace / Change / Reset / PopTo が進行中に新しい Push で preempt されたとき、

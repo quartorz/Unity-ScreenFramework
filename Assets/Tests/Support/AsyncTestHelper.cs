@@ -1,7 +1,7 @@
-using System;
+﻿using System;
 using Cysharp.Threading.Tasks;
 
-namespace Tests
+namespace Tests.Support
 {
 	/// <summary>
 	/// テスト用の非同期ユーティリティ。Mock 関数を <c>UniTask.FromResult</c> で書くと

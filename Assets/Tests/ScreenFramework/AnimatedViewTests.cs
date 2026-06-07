@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
@@ -7,7 +7,7 @@ using ScreenFramework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
-namespace Tests
+namespace Tests.ScreenFramework
 {
 	/// <summary>
 	/// View が IScreenAnimatedView を実装しているとき、

@@ -1,6 +1,6 @@
-using Sample.Api;
+﻿using Sample.Api;
 
-namespace Tests
+namespace Tests.Support
 {
 	[MockGenerator.GenerateMockFor(typeof(IUserService))]
 	public partial class MockUserService { }

@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using NUnit.Framework;
@@ -6,7 +6,7 @@ using ScreenFramework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
-namespace Tests
+namespace Tests.ScreenFramework
 {
 	/// <summary>
 	/// Stack モードでの Modal フラグ＋StackInputPolicy による

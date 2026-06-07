@@ -1,10 +1,10 @@
-using System;
+﻿using System;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using ScreenFramework;
 using UnityEngine;
 
-namespace Tests
+namespace Tests.ScreenFramework
 {
 	/// <summary>
 	/// ScreenFramework のテストで共有する handle / presenter / identifier / view の dummy 実装と

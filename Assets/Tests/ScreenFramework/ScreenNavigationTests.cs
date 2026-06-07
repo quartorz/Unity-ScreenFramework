@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using Cysharp.Threading.Tasks;
 using NUnit.Framework;
 using Sample;
@@ -6,8 +6,9 @@ using Sample.Api;
 using ScreenFramework;
 using UnityEngine;
 using UnityEngine.TestTools;
+using Tests.Support;
 
-namespace Tests
+namespace Tests.ScreenFramework
 {
 	/// <summary>
 	/// プレハブ・Canvas 不要で Presenter 経路をテストする。

@@ -6,6 +6,8 @@ namespace Sample.Api
 	[MockGenerator.GenerateInterface]
 	public sealed partial class GachaService : ApiBase
 	{
+		public GachaService(UserDataHolder userData) : base(userData) { }
+
 		public UniTask<GachaListResponse> List(Options opt = default)
 			=> Send<GachaListResponse>(new HttpRequest { Path = "/gacha/list" }, opt);
 

@@ -21,12 +21,7 @@ namespace Tests
 		public void SetUp()
 		{
 			_pageContainer = NewContainer("PageRoot");
-			var registry = new SampleRegistry(
-				useMockViews: true,
-				gacha: new MockGachaService(),
-				user: new MockUserService(),
-				profile: new MockProfileService(),
-				master: new MockMasterService());
+			var registry = TestSampleRegistry.AllMocks();
 			var setup = new ScreenLayerSetup
 			{
 				Page = NewLayerConfig(_pageContainer),

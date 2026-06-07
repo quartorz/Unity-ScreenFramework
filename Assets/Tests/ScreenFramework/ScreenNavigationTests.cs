@@ -35,12 +35,7 @@ namespace Tests
 				level = 1,
 			});
 
-			var registry = new SampleRegistry(
-				useMockViews: true,
-				gacha: new MockGachaService(),
-				user: new MockUserService(),
-				profile: _mockProfileApi,
-				master: new MockMasterService());
+			var registry = TestSampleRegistry.AllMocks(profile: _mockProfileApi);
 			// HomePresenter が Registry.UserData.Info.UserId を参照するので seed しておく
 			registry.UserData.SetInfo(new UserInfo
 			{

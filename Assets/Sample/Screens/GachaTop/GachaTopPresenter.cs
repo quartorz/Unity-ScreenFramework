@@ -30,7 +30,7 @@ namespace Sample
 		{
 			In.backButton.OnClicked += OnBack;
 
-			_model = new GachaTopModel(Registry.UserData, Registry.Gacha, Registry.User);
+			_model = new GachaTopModel(Registry.UserData, Registry.Api.Gacha, Registry.Api.User);
 			try
 			{
 				await _model.Initialize(ct);

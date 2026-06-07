@@ -1,47 +1,35 @@
-using Sample.Api;
 using ScreenFramework;
 
 namespace Sample
 {
 	/// <summary>
 	/// Sample プロジェクト用の Registry。
-	/// 過去プロジェクト由来の語彙で、各 Service（proto 由来想定）と
-	/// アプリ横断の Holder/Store をまとめて保持する DI バンドル。
+	/// 通信用の <see cref="SampleApiServices"/> と、アプリ横断の Holder/Store をまとめて保持する DI バンドル。
 	/// 静的ファサード <see cref="ScreenNavigator"/> 初期化時に渡す。
 	/// </summary>
 	public sealed class SampleRegistry : ScreenServices
 	{
-		public IGachaService Gacha { get; }
-		public IUserService User { get; }
-		public IProfileService Profile { get; }
-		public IMasterService Master { get; }
+		public SampleApiServices Api { get; }
 
 		/// <summary>
-		/// 起動時にタイトル画面で <see cref="IMasterService.Bootstrap"/> から流し込まれる。
+		/// 起動時にタイトル画面で <see cref="Sample.Api.IMasterService.Bootstrap"/> から流し込まれる。
 		/// 各画面はここから読み取り専用で参照する。
 		/// </summary>
 		public ItemMasterStore Items { get; }
 
 		/// <summary>
-		/// 起動時にタイトル画面で <see cref="IUserService.Info"/> から流し込まれる、
+		/// 起動時にタイトル画面で <see cref="Sample.Api.IUserService.Info"/> から流し込まれる、
 		/// 自ユーザーの「Info / 所持リソース」等をまとめた holder。
+		/// 通信完了時に書き戻すために各 Service にも共有されている。
 		/// </summary>
 		public UserDataHolder UserData { get; }
 
-		public SampleRegistry(
-			bool useMockViews,
-			IGachaService gacha,
-			IUserService user,
-			IProfileService profile,
-			IMasterService master)
+		public SampleRegistry(bool useMockViews, SampleApiServices api, UserDataHolder userData)
 			: base(useMockViews)
 		{
-			Gacha = gacha;
-			User = user;
-			Profile = profile;
-			Master = master;
+			Api = api;
+			UserData = userData;
 			Items = new ItemMasterStore();
-			UserData = new UserDataHolder();
 		}
 	}
 }

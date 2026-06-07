@@ -41,12 +41,7 @@ namespace Tests
 		const string TargetUserId = "user-001";
 
 		ProfilePresenter NewPresenter() => new ProfilePresenter(TargetUserId)
-			.WithServices(new SampleRegistry(
-				useMockViews: true,
-				gacha: new MockGachaService(),
-				user: new MockUserService(),
-				profile: _profileApi,
-				master: new MockMasterService()));
+			.WithServices(TestSampleRegistry.AllMocks(profile: _profileApi));
 
 		[Test]
 		public async Task OnAfterLoad_FetchesProfile_AndAppliesToView()

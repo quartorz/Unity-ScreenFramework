@@ -6,6 +6,8 @@ namespace Sample.Api
 	[MockGenerator.GenerateInterface]
 	public sealed partial class UserService : ApiBase
 	{
+		public UserService(UserDataHolder userData) : base(userData) { }
+
 		public UniTask<UserInfoResponse> Info(Options opt = default)
 			=> Send<UserInfoResponse>(new HttpRequest { Path = "/user/info" }, opt);
 

@@ -25,12 +25,13 @@ namespace Sample
 			EnsureEventSystem();
 
 			HttpClient.BaseUrl = ServerBoot.Instance.BaseUrl;
-			var registry = new SampleRegistry(
-				useMockViews: false,
-				gacha: new GachaService(),
-				user: new UserService(),
-				profile: new ProfileService(),
-				master: new MasterService());
+			var userData = new UserDataHolder();
+			var api = new SampleApiServices(
+				gacha: new GachaService(userData),
+				user: new UserService(userData),
+				profile: new ProfileService(userData),
+				master: new MasterService(userData));
+			var registry = new SampleRegistry(useMockViews: false, api, userData);
 
 			var setup = new ScreenLayerSetup
 			{

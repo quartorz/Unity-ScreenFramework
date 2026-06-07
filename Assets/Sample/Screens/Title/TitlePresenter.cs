@@ -30,8 +30,8 @@ namespace Sample
 			{
 				var opt = new Options(ct);
 				var (master, userInfo) = await UniTask.WhenAll(
-					Registry.Master.Bootstrap(opt),
-					Registry.User.Info(opt));
+					Registry.Api.Master.Bootstrap(opt),
+					Registry.Api.User.Info(opt));
 
 				Registry.Items.SetData(master.items.Select(r => new ItemMaster
 				{

@@ -27,7 +27,7 @@ namespace Sample
 			Out.SetSaving(true);
 			try
 			{
-				_current = await Registry.Profile.Get(_userId, new Options(ct));
+				_current = await Registry.Api.Profile.Get(_userId, new Options(ct));
 				Apply(_current);
 			}
 			finally
@@ -75,7 +75,7 @@ namespace Sample
 					name = result.Text,
 					level = _current.level,
 				};
-				_current = await Registry.Profile.Post(next, new Options(CancellationToken.None));
+				_current = await Registry.Api.Profile.Post(next, new Options(CancellationToken.None));
 				Apply(_current);
 			}
 			catch (OperationCanceledException) { }

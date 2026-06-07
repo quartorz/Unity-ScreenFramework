@@ -41,12 +41,7 @@ namespace Tests
 				dialog: new MockScreenNavigator(),
 				systemDialog: new MockScreenNavigator());
 
-			_registry = new SampleRegistry(
-				useMockViews: true,
-				gacha: new MockGachaService(),
-				user: new MockUserService(),
-				profile: new MockProfileService(),
-				master: new MockMasterService());
+			_registry = TestSampleRegistry.AllMocks();
 			_registry.UserData.SetInfo(new UserInfo
 			{
 				UserId = "user-001",

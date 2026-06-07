@@ -31,12 +31,7 @@ namespace Tests
 			_masterApi = new MockMasterService();
 			_pageNav = new MockScreenNavigator();
 			_view = new MockView.Sample.MockTitleView();
-			_registry = new SampleRegistry(
-				useMockViews: true,
-				gacha: new MockGachaService(),
-				user: _userApi,
-				profile: new MockProfileService(),
-				master: _masterApi);
+			_registry = TestSampleRegistry.AllMocks(user: _userApi, master: _masterApi);
 
 			_view.SetTitleFunc = _ => { };
 			_view.SetStatusFunc = _ => { };

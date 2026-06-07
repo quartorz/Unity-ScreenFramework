@@ -30,19 +30,10 @@ namespace Sample
 				_current = await Registry.Profile.Get(_userId, new Options(ct));
 				Apply(_current);
 			}
-			catch (OperationCanceledException)
+			finally
 			{
 				Out.SetSaving(false);
-				throw;
 			}
-			catch (Exception)
-			{
-				// ApiErrorHandler 表示済み・確認済み。framework の Load 系ゾーンは OCE のみを
-				// Handle.Unload + rollback 経路に乗せるので、OCE に詰め替えて投げて前画面（Home）に戻る。
-				Out.SetSaving(false);
-				throw new OperationCanceledException();
-			}
-			Out.SetSaving(false);
 		}
 
 		protected override UniTask OnAfterUnload(IScreenDataWriter writer, CancellationToken ct)

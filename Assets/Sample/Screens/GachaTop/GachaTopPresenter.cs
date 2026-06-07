@@ -1,4 +1,3 @@
-using System;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using ScreenFramework;
@@ -36,22 +35,11 @@ namespace Sample
 			{
 				await _model.Initialize(ct);
 			}
-			catch (OperationCanceledException)
+			catch
 			{
 				_model.Dispose();
 				_model = null;
 				throw;
-			}
-			catch (Exception)
-			{
-				// 失敗時：ApiErrorHandler が SystemDialog を出し終えてからここに来る。
-				// framework の Load 系ゾーン（OnBeforeLoad / Handle.Load / OnAfterLoad）は OCE のみを
-				// Handle.Unload + rollback 経路に乗せ、非 OCE はそのまま漏らす
-				// （ScreenNavigatorImpl.CreateAndPreloadAsync 参照）。なので OCE に詰め替えて投げる。
-				// これで Addressable handle が unload され、前画面に戻る。
-				_model.Dispose();
-				_model = null;
-				throw new OperationCanceledException();
 			}
 
 			_money = new MoneyHeaderFeature(In, Out.header, _model);

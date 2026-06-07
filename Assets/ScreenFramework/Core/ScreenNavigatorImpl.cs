@@ -596,8 +596,11 @@ namespace ScreenFramework
 					ResolvedCacheMode = ResolveCacheMode(id, cacheOverride: null),
 				};
 			}
-			catch (OperationCanceledException)
+			catch
 			{
+				// OCE / 非 OCE どちらでも handle を解放してから元の例外で抜ける。
+				// Load パイプライン（OnBeforeLoad / handle.Load / OnAfterLoad）の失敗を
+				// 利用側に OCE 詰め替えさせないため、catch (Exception) で受ける。
 				try { await handle.Unload(CancellationToken.None); }
 				catch { /* cleanup 中のエラーは握り潰す */ }
 				throw;

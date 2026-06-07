@@ -208,13 +208,7 @@ namespace Tests
 
 			var presenter = (IScreenPresenter)NewPresenter();
 
-			// 非 OCE で投げると framework が rollback できないので Presenter が OCE に詰め替える契約
-			// async Task のルール：throw した OCE がキャンセル済みトークンを持つと
-			// Task が Canceled 状態に遷移し、await で TaskCanceledException（OCE のサブクラス）に化ける。
-			// 1/2 番のテストは Presenter が new OperationCanceledException()（トークンなし）を投げるので
-			// 素の OCE のまま出るが、3 番は GetFunc が canceled token 付きで投げるので TCE になる。
-			// 全テストで同じ assertion を使うため、サブクラス許容の CatchAsync で統一。
-			Assert.CatchAsync<OperationCanceledException>(
+			Assert.CatchAsync<ApiException>(
 				async () => await ScreenTesting.PushAsync(presenter, _view));
 
 			Assert.AreEqual(new[] { true, false }, savingStates.ToArray(),
@@ -235,12 +229,7 @@ namespace Tests
 
 			var presenter = (IScreenPresenter)NewPresenter();
 
-			// async Task のルール：throw した OCE がキャンセル済みトークンを持つと
-			// Task が Canceled 状態に遷移し、await で TaskCanceledException（OCE のサブクラス）に化ける。
-			// 1/2 番のテストは Presenter が new OperationCanceledException()（トークンなし）を投げるので
-			// 素の OCE のまま出るが、3 番は GetFunc が canceled token 付きで投げるので TCE になる。
-			// 全テストで同じ assertion を使うため、サブクラス許容の CatchAsync で統一。
-			Assert.CatchAsync<OperationCanceledException>(
+			Assert.CatchAsync<ApiTransportException>(
 				async () => await ScreenTesting.PushAsync(presenter, _view));
 
 			Assert.AreEqual(new[] { true, false }, savingStates.ToArray());

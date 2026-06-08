@@ -31,11 +31,6 @@ namespace Tests.Sample
 			_dialogNav = new MockScreenNavigator();
 			_view = new MockView.Sample.MockProfileView();
 
-			_view.SetUserIdFunc = _ => { };
-			_view.SetLevelFunc  = _ => { };
-			_view.SetNameFunc   = _ => { };
-			_view.SetSavingFunc = _ => { };
-
 			ScreenNavigator.Override(page: _pageNav, dialog: _dialogNav, systemDialog: new MockScreenNavigator());
 		}
 

@@ -59,11 +59,6 @@ namespace Tests.Sample
 			});
 
 			_view = new MockView.Sample.MockGachaTopView();
-
-			// 触る Func の no-op 既定（NRE 回避）
-			_view.SetGachaNameFunc = _ => { };
-			_view.SetIndexFunc = (_, _) => { };
-			_view.header.SetMoneyFunc = _ => { };
 		}
 
 		static GachaListResponse MakeGachaList() => new GachaListResponse

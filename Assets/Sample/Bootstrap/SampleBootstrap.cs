@@ -17,7 +17,8 @@ namespace Sample
 		[SerializeField] ScreenContainer _pageContainer;
 		[SerializeField] ScreenContainer _dialogContainer;
 		[SerializeField] ScreenContainer _sysDialogContainer;
-		[SerializeField] RectTransform _fadeOverlayParent;
+		[SerializeField] Transform _effectRoot;
+		[SerializeField] EffectRegistry _pageEffectRegistry;
 		[SerializeField] bool _startWithProfile;
 
 		async void Start()
@@ -42,7 +43,8 @@ namespace Sample
 					StackMode = StackMode.Cover,
 					StackInputPolicy = StackInputPolicy.BlockUnderlying,
 					DefaultModal = true,
-					DefaultTransition = new FadeTransition(_fadeOverlayParent, duration: 0.25f),
+					Registry = _pageEffectRegistry,
+					EffectRoot = _effectRoot,
 				},
 				Dialog = new ScreenLayerConfig
 				{
@@ -55,7 +57,6 @@ namespace Sample
 					StackMode = StackMode.Cover,
 					StackInputPolicy = StackInputPolicy.BlockUnderlying,
 					DefaultModal = true,
-					DefaultTransition = ImmediateTransition.Instance,
 				},
 				SystemDialog = new ScreenLayerConfig
 				{
@@ -64,7 +65,6 @@ namespace Sample
 					StackMode = StackMode.Stack,
 					StackInputPolicy = StackInputPolicy.BlockUnderlying,
 					DefaultModal = true,
-					DefaultTransition = ImmediateTransition.Instance,
 				},
 			};
 

@@ -102,10 +102,9 @@ namespace Tests.ScreenFramework
 					StackMode = stack,
 					StackInputPolicy = StackInputPolicy.BlockUnderlying,
 					DefaultModal = true,
-					DefaultTransition = ImmediateTransition.Instance,
 				},
-				Dialog = new ScreenLayerConfig { Container = NewContainer("DlgRoot"), DefaultTransition = ImmediateTransition.Instance },
-				SystemDialog = new ScreenLayerConfig { Container = NewContainer("SysRoot"), DefaultTransition = ImmediateTransition.Instance },
+				Dialog = new ScreenLayerConfig { Container = NewContainer("DlgRoot") },
+				SystemDialog = new ScreenLayerConfig { Container = NewContainer("SysRoot") },
 			};
 			ScreenNavigator.Initialize(new TestServices(), setup);
 		}

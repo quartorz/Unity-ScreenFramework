@@ -3,7 +3,6 @@ namespace ScreenFramework
 	public readonly struct PushOptions
 	{
 		public INavigationData Data { get; init; }
-		public IScreenTransitionDirector TransitionDirector { get; init; }
 		public ScreenCacheMode? CachePolicyOverride { get; init; }
 		public bool? ModalOverride { get; init; }
 		public InterruptPriority InterruptPriority { get; init; }
@@ -11,14 +10,12 @@ namespace ScreenFramework
 
 	public readonly struct PopOptions
 	{
-		public IScreenTransitionDirector TransitionDirector { get; init; }
 		public InterruptPriority InterruptPriority { get; init; }
 	}
 
 	public readonly struct ReplaceOptions
 	{
 		public INavigationData Data { get; init; }
-		public IScreenTransitionDirector TransitionDirector { get; init; }
 		public ScreenCacheMode? CachePolicyOverride { get; init; }
 		public bool? ModalOverride { get; init; }
 		public InterruptPriority InterruptPriority { get; init; }
@@ -27,7 +24,6 @@ namespace ScreenFramework
 	public readonly struct ChangeOptions
 	{
 		public INavigationData Data { get; init; }
-		public IScreenTransitionDirector TransitionDirector { get; init; }
 		public ScreenCacheMode? CachePolicyOverride { get; init; }
 		public bool? ModalOverride { get; init; }
 		public InterruptPriority InterruptPriority { get; init; }
@@ -36,7 +32,6 @@ namespace ScreenFramework
 	public readonly struct ResetOptions
 	{
 		public INavigationData Data { get; init; }
-		public IScreenTransitionDirector TransitionDirector { get; init; }
 		public ScreenCacheMode? CachePolicyOverride { get; init; }
 		public bool? ModalOverride { get; init; }
 		public InterruptPriority InterruptPriority { get; init; }
@@ -44,7 +39,6 @@ namespace ScreenFramework
 
 	public readonly struct PopToOptions
 	{
-		public IScreenTransitionDirector TransitionDirector { get; init; }
 		public InterruptPriority InterruptPriority { get; init; }
 	}
 

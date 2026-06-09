@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Threading;
 using Cysharp.Threading.Tasks;
@@ -267,7 +267,6 @@ namespace Tests.ScreenFramework
 			StackMode = StackMode.Cover,
 			StackInputPolicy = StackInputPolicy.BlockUnderlying,
 			DefaultModal = true,
-			DefaultTransition = ImmediateTransition.Instance,
 		};
 	}
 }

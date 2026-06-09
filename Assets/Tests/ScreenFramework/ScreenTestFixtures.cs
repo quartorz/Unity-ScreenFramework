@@ -27,8 +27,7 @@ namespace Tests.ScreenFramework
 			StackMode stack = StackMode.Cover,
 			ScreenCacheMode cache = ScreenCacheMode.DestroyOnCover,
 			StackInputPolicy inputPolicy = StackInputPolicy.BlockUnderlying,
-			bool modal = true,
-			IScreenTransitionDirector transition = null)
+			bool modal = true)
 			=> new()
 			{
 				Container = container,
@@ -36,7 +35,6 @@ namespace Tests.ScreenFramework
 				StackMode = stack,
 				StackInputPolicy = inputPolicy,
 				DefaultModal = modal,
-				DefaultTransition = transition ?? ImmediateTransition.Instance,
 			};
 	}
 

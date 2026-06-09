@@ -183,7 +183,6 @@ namespace Tests.ScreenFramework
 					StackMode = StackMode.Cover,
 					StackInputPolicy = StackInputPolicy.BlockUnderlying,
 					DefaultModal = true,
-					DefaultTransition = ImmediateTransition.Instance,
 				},
 				SystemDialog = NewLayer(NewContainer("SysRoot2")),
 			});
@@ -250,7 +249,6 @@ namespace Tests.ScreenFramework
 			StackMode = stack,
 			StackInputPolicy = StackInputPolicy.BlockUnderlying,
 			DefaultModal = true,
-			DefaultTransition = ImmediateTransition.Instance,
 		};
 
 		sealed class TestServices : ScreenServices

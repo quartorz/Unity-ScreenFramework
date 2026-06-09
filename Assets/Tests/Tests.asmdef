@@ -6,7 +6,8 @@
         "UnityEditor.TestRunner",
         "ScreenFramework",
         "Sample",
-        "UniTask"
+        "UniTask",
+        "Unity.Addressables"
     ],
     "includePlatforms": [
         "Editor"

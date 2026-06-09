@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
@@ -126,15 +126,15 @@ namespace Tests.ScreenFramework
 			public List<string> Events { get; } = new();
 			public RecordingPresenter(string tag) { Tag = tag; }
 
-			public UniTask OnBeforeLoad(IScreenDataReader r, CancellationToken c) { Events.Add("BeforeLoad"); return UniTask.CompletedTask; }
-			public UniTask OnAfterLoad(IScreenViewInstance v, IScreenDataReader r, CancellationToken c) { Events.Add("AfterLoad"); return UniTask.CompletedTask; }
-			public UniTask OnBeforeEnter(IScreenDataReader r, CancellationToken c) { Events.Add("BeforeEnter"); return UniTask.CompletedTask; }
-			public UniTask OnAfterEnter(IScreenDataReader r, CancellationToken c) { Events.Add("AfterEnter"); return UniTask.CompletedTask; }
-			public UniTask OnBeforeExit(IScreenDataWriter w, CancellationToken c) { Events.Add("BeforeExit"); return UniTask.CompletedTask; }
-			public UniTask OnAfterExit(IScreenDataWriter w, CancellationToken c) { Events.Add("AfterExit"); return UniTask.CompletedTask; }
+			public UniTask OnBeforeLoad(INavigationDataReader r, CancellationToken c) { Events.Add("BeforeLoad"); return UniTask.CompletedTask; }
+			public UniTask OnAfterLoad(IScreenViewInstance v, INavigationDataReader r, CancellationToken c) { Events.Add("AfterLoad"); return UniTask.CompletedTask; }
+			public UniTask OnBeforeEnter(INavigationDataReader r, CancellationToken c) { Events.Add("BeforeEnter"); return UniTask.CompletedTask; }
+			public UniTask OnAfterEnter(INavigationDataReader r, CancellationToken c) { Events.Add("AfterEnter"); return UniTask.CompletedTask; }
+			public UniTask OnBeforeExit(INavigationDataWriter w, CancellationToken c) { Events.Add("BeforeExit"); return UniTask.CompletedTask; }
+			public UniTask OnAfterExit(INavigationDataWriter w, CancellationToken c) { Events.Add("AfterExit"); return UniTask.CompletedTask; }
 			public UniTask OnSuspend(CancellationToken c) { Events.Add("Suspend"); return UniTask.CompletedTask; }
 			public UniTask OnResume(CancellationToken c) { Events.Add("Resume"); return UniTask.CompletedTask; }
-			public UniTask OnAfterUnload(IScreenDataWriter w, CancellationToken c) { Events.Add("AfterUnload"); return UniTask.CompletedTask; }
+			public UniTask OnAfterUnload(INavigationDataWriter w, CancellationToken c) { Events.Add("AfterUnload"); return UniTask.CompletedTask; }
 		}
 
 		sealed record RecScreenId(IScreenPresenter Presenter) : ScreenIdentifier

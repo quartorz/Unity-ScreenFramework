@@ -23,7 +23,7 @@ namespace Sample.Dialogs
 			_showCloseButton = showCloseButton;
 		}
 
-		protected override UniTask OnAfterLoad(IScreenDataReader reader, CancellationToken ct)
+		protected override UniTask OnAfterLoad(INavigationDataReader reader, CancellationToken ct)
 		{
 			Out.SetTitle(_title);
 			Out.SetMessage(_message);
@@ -34,7 +34,7 @@ namespace Sample.Dialogs
 			return UniTask.CompletedTask;
 		}
 
-		protected override UniTask OnAfterUnload(IScreenDataWriter writer, CancellationToken ct)
+		protected override UniTask OnAfterUnload(INavigationDataWriter writer, CancellationToken ct)
 		{
 			if (In != null)
 			{

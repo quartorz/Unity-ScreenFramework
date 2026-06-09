@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Threading;
 using System.Threading.Tasks;
@@ -258,7 +258,7 @@ namespace Tests.ScreenFramework
 			public TestServices() : base(useMockViews: true) { }
 		}
 
-		public sealed class EchoResult : IScreenData
+		public sealed class EchoResult : INavigationData
 		{
 			public string Text;
 		}
@@ -269,7 +269,7 @@ namespace Tests.ScreenFramework
 			readonly string _text;
 			public EchoDialogPresenter(string text) { _text = text; }
 
-			protected override UniTask OnAfterLoad(IScreenDataReader reader, CancellationToken ct)
+			protected override UniTask OnAfterLoad(INavigationDataReader reader, CancellationToken ct)
 			{
 				if (_text != null) SetResult(new EchoResult { Text = _text });
 				return UniTask.CompletedTask;

@@ -15,7 +15,7 @@ namespace Sample
 
 		public GachaResultPresenter(GachaPullResponse result) { _result = result; }
 
-		protected override UniTask OnAfterLoad(IScreenDataReader reader, CancellationToken ct)
+		protected override UniTask OnAfterLoad(INavigationDataReader reader, CancellationToken ct)
 		{
 			In.OnBackClicked += OnBack;
 			Out.SetTitle($"{_result.items.Length}連 結果");
@@ -25,7 +25,7 @@ namespace Sample
 			return UniTask.CompletedTask;
 		}
 
-		protected override UniTask OnAfterUnload(IScreenDataWriter writer, CancellationToken ct)
+		protected override UniTask OnAfterUnload(INavigationDataWriter writer, CancellationToken ct)
 		{
 			if (In != null) In.OnBackClicked -= OnBack;
 			return UniTask.CompletedTask;

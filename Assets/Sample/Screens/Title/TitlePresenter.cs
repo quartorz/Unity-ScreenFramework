@@ -14,7 +14,7 @@ namespace Sample
 	{
 		bool _ready;
 
-		protected override UniTask OnAfterLoad(IScreenDataReader reader, CancellationToken ct)
+		protected override UniTask OnAfterLoad(INavigationDataReader reader, CancellationToken ct)
 		{
 			Debug.Log("[TitlePresenter] OnAfterLoad");
 			Out.SetTitle("MockView Sample");
@@ -24,7 +24,7 @@ namespace Sample
 			return UniTask.CompletedTask;
 		}
 
-		protected override async UniTask OnAfterEnter(IScreenDataReader reader, CancellationToken ct)
+		protected override async UniTask OnAfterEnter(INavigationDataReader reader, CancellationToken ct)
 		{
 			try
 			{
@@ -72,7 +72,7 @@ namespace Sample
 			}
 		}
 
-		protected override UniTask OnAfterUnload(IScreenDataWriter writer, CancellationToken ct)
+		protected override UniTask OnAfterUnload(INavigationDataWriter writer, CancellationToken ct)
 		{
 			if (In != null) In.OnStartClicked -= OnStart;
 			return UniTask.CompletedTask;

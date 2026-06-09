@@ -28,7 +28,7 @@ namespace ScreenFramework
 		/// </para>
 		/// </summary>
 		UniTask<TResult> PushAndAwait<TResult>(ScreenIdentifier<TResult> id, PushOptions opt = default, CancellationToken ct = default)
-			where TResult : IScreenData;
+			where TResult : INavigationData;
 		UniTask Pop(PopOptions opt = default, CancellationToken ct = default);
 		/// <summary>
 		/// 指定 Presenter のエントリを閉じる。位置依存の Pop と違い参照で閉じるため、

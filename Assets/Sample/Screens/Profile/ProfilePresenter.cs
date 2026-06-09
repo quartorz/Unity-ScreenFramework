@@ -18,7 +18,7 @@ namespace Sample
 
 		public ProfilePresenter(string userId) { _userId = userId; }
 
-		protected override async UniTask OnAfterLoad(IScreenDataReader reader, CancellationToken ct)
+		protected override async UniTask OnAfterLoad(INavigationDataReader reader, CancellationToken ct)
 		{
 			Debug.Log($"[ProfilePresenter] OnAfterLoad UserId={_userId}");
 			In.OnEditNameClicked += OnEditName;
@@ -36,7 +36,7 @@ namespace Sample
 			}
 		}
 
-		protected override UniTask OnAfterUnload(IScreenDataWriter writer, CancellationToken ct)
+		protected override UniTask OnAfterUnload(INavigationDataWriter writer, CancellationToken ct)
 		{
 			if (In != null)
 			{

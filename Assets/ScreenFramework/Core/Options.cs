@@ -2,7 +2,7 @@ namespace ScreenFramework
 {
 	public readonly struct PushOptions
 	{
-		public IScreenData Data { get; init; }
+		public INavigationData Data { get; init; }
 		public IScreenTransitionDirector TransitionDirector { get; init; }
 		public ScreenCacheMode? CachePolicyOverride { get; init; }
 		public bool? ModalOverride { get; init; }
@@ -17,7 +17,7 @@ namespace ScreenFramework
 
 	public readonly struct ReplaceOptions
 	{
-		public IScreenData Data { get; init; }
+		public INavigationData Data { get; init; }
 		public IScreenTransitionDirector TransitionDirector { get; init; }
 		public ScreenCacheMode? CachePolicyOverride { get; init; }
 		public bool? ModalOverride { get; init; }
@@ -26,7 +26,7 @@ namespace ScreenFramework
 
 	public readonly struct ChangeOptions
 	{
-		public IScreenData Data { get; init; }
+		public INavigationData Data { get; init; }
 		public IScreenTransitionDirector TransitionDirector { get; init; }
 		public ScreenCacheMode? CachePolicyOverride { get; init; }
 		public bool? ModalOverride { get; init; }
@@ -35,7 +35,7 @@ namespace ScreenFramework
 
 	public readonly struct ResetOptions
 	{
-		public IScreenData Data { get; init; }
+		public INavigationData Data { get; init; }
 		public IScreenTransitionDirector TransitionDirector { get; init; }
 		public ScreenCacheMode? CachePolicyOverride { get; init; }
 		public bool? ModalOverride { get; init; }

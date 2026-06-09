@@ -8,7 +8,7 @@ namespace Sample
 	public sealed class HomePresenter
 		: SamplePresenter<MockView.Sample.IHomeViewInput, MockView.Sample.IHomeViewOutput>
 	{
-		protected override UniTask OnAfterLoad(IScreenDataReader reader, CancellationToken ct)
+		protected override UniTask OnAfterLoad(INavigationDataReader reader, CancellationToken ct)
 		{
 			Out.SetTitle("Home Screen");
 			In.goProfile.OnClicked += OnGoProfile;
@@ -17,7 +17,7 @@ namespace Sample
 			return UniTask.CompletedTask;
 		}
 
-		protected override UniTask OnAfterUnload(IScreenDataWriter writer, CancellationToken ct)
+		protected override UniTask OnAfterUnload(INavigationDataWriter writer, CancellationToken ct)
 		{
 			if (In != null)
 			{

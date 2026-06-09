@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
@@ -23,7 +23,7 @@ namespace Tests.Support
 			this MockScreenNavigator nav,
 			Func<TId, TResult> handler)
 			where TId : ScreenIdentifier<TResult>
-			where TResult : IScreenData
+			where TResult : INavigationData
 		{
 			var stub = nav.PushAndAwaitFunc as PushAndAwaitStub
 				?? new PushAndAwaitStub();
@@ -36,7 +36,7 @@ namespace Tests.Support
 			this MockScreenNavigator nav,
 			TResult result)
 			where TId : ScreenIdentifier<TResult>
-			where TResult : IScreenData
+			where TResult : INavigationData
 			=> nav.SetupPushAndAwait<TId, TResult>(_ => result);
 
 		/// <summary>
@@ -45,7 +45,7 @@ namespace Tests.Support
 		/// </summary>
 		public static MockScreenNavigator TrackPushAndAwait<TId, TResult>(this MockScreenNavigator nav)
 			where TId : ScreenIdentifier<TResult>
-			where TResult : IScreenData
+			where TResult : INavigationData
 			=> nav.SetupPushAndAwait<TId, TResult>(_ => default);
 
 		/// <summary>
@@ -58,18 +58,18 @@ namespace Tests.Support
 
 	sealed class PushAndAwaitStub : MockScreenNavigator.IPushAndAwaitDelegate
 	{
-		readonly Dictionary<Type, Func<IScreenIdentifier, IScreenData>> _handlers = new();
+		readonly Dictionary<Type, Func<IScreenIdentifier, INavigationData>> _handlers = new();
 		public List<IScreenIdentifier> Awaited { get; } = new();
 
 		public void Register<TId, TResult>(Func<TId, TResult> handler)
 			where TId : ScreenIdentifier<TResult>
-			where TResult : IScreenData
+			where TResult : INavigationData
 		{
 			_handlers[typeof(TId)] = id => handler((TId)id);
 		}
 
 		public UniTask<TResult> Call<TResult>(ScreenIdentifier<TResult> id, PushOptions opt, CancellationToken ct)
-			where TResult : IScreenData
+			where TResult : INavigationData
 		{
 			Awaited.Add(id);
 			if (_handlers.TryGetValue(id.GetType(), out var f))

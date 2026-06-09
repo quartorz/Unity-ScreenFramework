@@ -5,15 +5,15 @@ namespace ScreenFramework
 {
 	public interface IScreenPresenter
 	{
-		UniTask OnBeforeLoad(IScreenDataReader reader, CancellationToken ct) => UniTask.CompletedTask;
-		UniTask OnAfterLoad(IScreenViewInstance view, IScreenDataReader reader, CancellationToken ct) => UniTask.CompletedTask;
-		UniTask OnBeforeEnter(IScreenDataReader reader, CancellationToken ct) => UniTask.CompletedTask;
-		UniTask OnAfterEnter(IScreenDataReader reader, CancellationToken ct) => UniTask.CompletedTask;
-		UniTask OnBeforeExit(IScreenDataWriter writer, CancellationToken ct) => UniTask.CompletedTask;
-		UniTask OnAfterExit(IScreenDataWriter writer, CancellationToken ct) => UniTask.CompletedTask;
+		UniTask OnBeforeLoad(INavigationDataReader reader, CancellationToken ct) => UniTask.CompletedTask;
+		UniTask OnAfterLoad(IScreenViewInstance view, INavigationDataReader reader, CancellationToken ct) => UniTask.CompletedTask;
+		UniTask OnBeforeEnter(INavigationDataReader reader, CancellationToken ct) => UniTask.CompletedTask;
+		UniTask OnAfterEnter(INavigationDataReader reader, CancellationToken ct) => UniTask.CompletedTask;
+		UniTask OnBeforeExit(INavigationDataWriter writer, CancellationToken ct) => UniTask.CompletedTask;
+		UniTask OnAfterExit(INavigationDataWriter writer, CancellationToken ct) => UniTask.CompletedTask;
 		UniTask OnSuspend(CancellationToken ct) => UniTask.CompletedTask;
 		UniTask OnResume(CancellationToken ct) => UniTask.CompletedTask;
-		UniTask OnAfterUnload(IScreenDataWriter writer, CancellationToken ct) => UniTask.CompletedTask;
+		UniTask OnAfterUnload(INavigationDataWriter writer, CancellationToken ct) => UniTask.CompletedTask;
 
 		/// <summary>Navigator が生成直後にサービスバンドルを差し込む。既定は no-op。</summary>
 		void AssignServices(ScreenServices services) { }
@@ -36,32 +36,32 @@ namespace ScreenFramework
 
 		void IScreenPresenter.AssignServices(ScreenServices services) => Services = services;
 
-		UniTask IScreenPresenter.OnBeforeLoad(IScreenDataReader reader, CancellationToken ct)
+		UniTask IScreenPresenter.OnBeforeLoad(INavigationDataReader reader, CancellationToken ct)
 			=> OnBeforeLoad(reader, ct);
 
-		UniTask IScreenPresenter.OnAfterLoad(IScreenViewInstance view, IScreenDataReader reader, CancellationToken ct)
+		UniTask IScreenPresenter.OnAfterLoad(IScreenViewInstance view, INavigationDataReader reader, CancellationToken ct)
 		{
 			In  = view.As<TInput>();
 			Out = view.As<TOutput>();
 			return OnAfterLoad(reader, ct);
 		}
 
-		UniTask IScreenPresenter.OnBeforeEnter(IScreenDataReader reader, CancellationToken ct) => OnBeforeEnter(reader, ct);
-		UniTask IScreenPresenter.OnAfterEnter(IScreenDataReader reader, CancellationToken ct) => OnAfterEnter(reader, ct);
-		UniTask IScreenPresenter.OnBeforeExit(IScreenDataWriter writer, CancellationToken ct) => OnBeforeExit(writer, ct);
-		UniTask IScreenPresenter.OnAfterExit(IScreenDataWriter writer, CancellationToken ct) => OnAfterExit(writer, ct);
+		UniTask IScreenPresenter.OnBeforeEnter(INavigationDataReader reader, CancellationToken ct) => OnBeforeEnter(reader, ct);
+		UniTask IScreenPresenter.OnAfterEnter(INavigationDataReader reader, CancellationToken ct) => OnAfterEnter(reader, ct);
+		UniTask IScreenPresenter.OnBeforeExit(INavigationDataWriter writer, CancellationToken ct) => OnBeforeExit(writer, ct);
+		UniTask IScreenPresenter.OnAfterExit(INavigationDataWriter writer, CancellationToken ct) => OnAfterExit(writer, ct);
 		UniTask IScreenPresenter.OnSuspend(CancellationToken ct) => OnSuspend(ct);
 		UniTask IScreenPresenter.OnResume(CancellationToken ct) => OnResume(ct);
-		UniTask IScreenPresenter.OnAfterUnload(IScreenDataWriter writer, CancellationToken ct) => OnAfterUnload(writer, ct);
+		UniTask IScreenPresenter.OnAfterUnload(INavigationDataWriter writer, CancellationToken ct) => OnAfterUnload(writer, ct);
 
-		protected virtual UniTask OnBeforeLoad(IScreenDataReader reader, CancellationToken ct) => UniTask.CompletedTask;
-		protected virtual UniTask OnAfterLoad(IScreenDataReader reader, CancellationToken ct) => UniTask.CompletedTask;
-		protected virtual UniTask OnBeforeEnter(IScreenDataReader reader, CancellationToken ct) => UniTask.CompletedTask;
-		protected virtual UniTask OnAfterEnter(IScreenDataReader reader, CancellationToken ct) => UniTask.CompletedTask;
-		protected virtual UniTask OnBeforeExit(IScreenDataWriter writer, CancellationToken ct) => UniTask.CompletedTask;
-		protected virtual UniTask OnAfterExit(IScreenDataWriter writer, CancellationToken ct) => UniTask.CompletedTask;
+		protected virtual UniTask OnBeforeLoad(INavigationDataReader reader, CancellationToken ct) => UniTask.CompletedTask;
+		protected virtual UniTask OnAfterLoad(INavigationDataReader reader, CancellationToken ct) => UniTask.CompletedTask;
+		protected virtual UniTask OnBeforeEnter(INavigationDataReader reader, CancellationToken ct) => UniTask.CompletedTask;
+		protected virtual UniTask OnAfterEnter(INavigationDataReader reader, CancellationToken ct) => UniTask.CompletedTask;
+		protected virtual UniTask OnBeforeExit(INavigationDataWriter writer, CancellationToken ct) => UniTask.CompletedTask;
+		protected virtual UniTask OnAfterExit(INavigationDataWriter writer, CancellationToken ct) => UniTask.CompletedTask;
 		protected virtual UniTask OnSuspend(CancellationToken ct) => UniTask.CompletedTask;
 		protected virtual UniTask OnResume(CancellationToken ct) => UniTask.CompletedTask;
-		protected virtual UniTask OnAfterUnload(IScreenDataWriter writer, CancellationToken ct) => UniTask.CompletedTask;
+		protected virtual UniTask OnAfterUnload(INavigationDataWriter writer, CancellationToken ct) => UniTask.CompletedTask;
 	}
 }

@@ -19,6 +19,6 @@ namespace ScreenFramework
 	/// DialogPresenter の SetResult 引数型を縛る。
 	/// </summary>
 	public abstract record ScreenIdentifier<TResult> : ScreenIdentifier
-		where TResult : IScreenData
+		where TResult : INavigationData
 	{ }
 }

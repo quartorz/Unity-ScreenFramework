@@ -28,14 +28,14 @@ namespace ScreenFramework
 			=> new TestViewInstance(instance ?? throw new ArgumentNullException(nameof(instance)));
 
 		/// <summary>空のリーダー（Push payload なしの状況）。</summary>
-		public static IScreenDataReader EmptyReader => EmptyScreenDataReader.Instance;
+		public static INavigationDataReader EmptyReader => EmptyNavigationDataReader.Instance;
 
 		/// <summary>
-		/// 1 個の IScreenData を含むリーダーを作る。OnBeforeEnter テスト等で。
+		/// 1 個の INavigationData を含むリーダーを作る。OnBeforeEnter テスト等で。
 		/// </summary>
-		public static IScreenDataReader ReaderWith(IScreenData data)
+		public static INavigationDataReader ReaderWith(INavigationData data)
 		{
-			var store = new ScreenDataStore();
+			var store = new NavigationDataStore();
 			store.WriteUntyped(data);
 			return store;
 		}
@@ -44,9 +44,9 @@ namespace ScreenFramework
 		/// OnBeforeExit / OnAfterExit テスト用。Presenter が書き込んだ値を後から
 		/// readerView から読み返す。
 		/// </summary>
-		public static IScreenDataWriter NewWriter(out IScreenDataReader readerView)
+		public static INavigationDataWriter NewWriter(out INavigationDataReader readerView)
 		{
-			var store = new ScreenDataStore();
+			var store = new NavigationDataStore();
 			readerView = store;
 			return store;
 		}
@@ -72,17 +72,17 @@ namespace ScreenFramework
 		public static async UniTask PushAsync(
 			IScreenPresenter presenter,
 			object view,
-			IScreenDataReader reader = null,
+			INavigationDataReader reader = null,
 			CancellationToken ct = default)
 		{
 			if (presenter == null) throw new ArgumentNullException(nameof(presenter));
 			if (view == null) throw new ArgumentNullException(nameof(view));
-			reader ??= EmptyScreenDataReader.Instance;
+			reader ??= EmptyNavigationDataReader.Instance;
 
 			await presenter.OnBeforeLoad(reader, ct);
 			await presenter.OnAfterLoad(ViewOf(view), reader, ct);
 			await presenter.OnBeforeEnter(reader, ct);
-			await presenter.OnAfterEnter(EmptyScreenDataReader.Instance, ct);
+			await presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, ct);
 		}
 
 		/// <summary>
@@ -90,13 +90,13 @@ namespace ScreenFramework
 		/// OnBeforeExit → OnAfterExit → OnAfterUnload。
 		/// 戻り値は Presenter が exit 時に書き込んだ値を読み返すための reader。
 		/// </summary>
-		public static async UniTask<IScreenDataReader> PopAsync(
+		public static async UniTask<INavigationDataReader> PopAsync(
 			IScreenPresenter presenter,
 			CancellationToken ct = default)
 		{
 			if (presenter == null) throw new ArgumentNullException(nameof(presenter));
-			var store = new ScreenDataStore();
-			var writer = (IScreenDataWriter)store;
+			var store = new NavigationDataStore();
+			var writer = (INavigationDataWriter)store;
 
 			await presenter.OnBeforeExit(writer, ct);
 			await presenter.OnAfterExit(writer, ct);

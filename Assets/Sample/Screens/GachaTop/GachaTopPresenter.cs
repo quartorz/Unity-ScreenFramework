@@ -26,7 +26,7 @@ namespace Sample
 		MoneyHeaderFeature _money;
 		GachaPickerFeature _picker;
 
-		protected override async UniTask OnAfterLoad(IScreenDataReader reader, CancellationToken ct)
+		protected override async UniTask OnAfterLoad(INavigationDataReader reader, CancellationToken ct)
 		{
 			In.backButton.OnClicked += OnBack;
 
@@ -48,7 +48,7 @@ namespace Sample
 			_picker.Attach();
 		}
 
-		protected override UniTask OnAfterUnload(IScreenDataWriter writer, CancellationToken ct)
+		protected override UniTask OnAfterUnload(INavigationDataWriter writer, CancellationToken ct)
 		{
 			if (In != null) In.backButton.OnClicked -= OnBack;
 			_money?.Detach();

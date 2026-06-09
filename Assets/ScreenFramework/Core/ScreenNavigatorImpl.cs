@@ -64,12 +64,12 @@ namespace ScreenFramework
 		}
 
 		public async UniTask<TResult> PushAndAwait<TResult>(ScreenIdentifier<TResult> id, PushOptions opt = default, CancellationToken ct = default)
-			where TResult : IScreenData
+			where TResult : INavigationData
 		{
 			if (id == null) throw new ArgumentNullException(nameof(id));
 
 			// このエントリ専用の結果完了ソース。ExitPreviousAsync で TrySetResult される。
-			var tcs = new UniTaskCompletionSource<IScreenDataReader>();
+			var tcs = new UniTaskCompletionSource<INavigationDataReader>();
 
 			// Push 自体は通常通り Run。tcs を PushCore に持ち込んで entry.ResultSource に貼る。
 			await Run(opt.InterruptPriority, ct, async myCt =>
@@ -331,7 +331,7 @@ namespace ScreenFramework
 		// 各操作のコア（ロールバック可能ゾーン / 完走必須ゾーンを意識）
 		// ===========================================================================
 
-		async UniTask<LiveEntry> PushCore(IScreenIdentifier id, PushOptions opt, UniTaskCompletionSource<IScreenDataReader> resultSource, CancellationToken ct)
+		async UniTask<LiveEntry> PushCore(IScreenIdentifier id, PushOptions opt, UniTaskCompletionSource<INavigationDataReader> resultSource, CancellationToken ct)
 		{
 			// FireStart/FireEnd は public ラッパー側で行う（caller intent の Kind で fire するため）。
 			// --- ロールバック可能ゾーン ---
@@ -382,7 +382,7 @@ namespace ScreenFramework
 
 			await RunEnterAsync(entry, transition, safeCt);
 
-			await entry.Presenter.OnAfterEnter(EmptyScreenDataReader.Instance, safeCt);
+			await entry.Presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, safeCt);
 			entry.PushPayload = null;
 
 			_history.Push(id);
@@ -402,7 +402,7 @@ namespace ScreenFramework
 			if (transition != null) await transition.Start(safeCt);
 
 			var top = _live[_live.Count - 1];
-			var returnStore = new ScreenDataStore();
+			var returnStore = new NavigationDataStore();
 			await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: true, safeCt, returnStore, isNormalPop: true);
 			DestroyBlockerIfAny(top);
 
@@ -440,7 +440,7 @@ namespace ScreenFramework
 
 			await below.Presenter.OnBeforeEnter(returnStore, safeCt);
 			await RunEnterAsync(below, transition, safeCt, playViewEnter: belowReappears);
-			await below.Presenter.OnAfterEnter(EmptyScreenDataReader.Instance, safeCt);
+			await below.Presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, safeCt);
 		}
 
 		/// <summary>
@@ -451,7 +451,7 @@ namespace ScreenFramework
 		{
 			var entry = _live[idx];
 			var safeCt = CancellationToken.None;
-			var returnStore = new ScreenDataStore();
+			var returnStore = new NavigationDataStore();
 			await ExitPreviousAsync(entry, ScreenCacheMode.DestroyOnCover, isPop: true, safeCt, returnStore, isNormalPop: true);
 			DestroyBlockerIfAny(entry);
 			_live.RemoveAt(idx);
@@ -473,7 +473,7 @@ namespace ScreenFramework
 			if (transition != null) await transition.Start(safeCt);
 
 			var top = _live[_live.Count - 1];
-			var returnStore = new ScreenDataStore();
+			var returnStore = new NavigationDataStore();
 			await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: true, safeCt, returnStore, isNormalPop: true);
 			DestroyBlockerIfAny(top);
 			_live.RemoveAt(_live.Count - 1);
@@ -508,7 +508,7 @@ namespace ScreenFramework
 
 				await below.Presenter.OnBeforeEnter(returnStore, safeCt);
 				await RunEnterAsync(below, transition, safeCt, playViewEnter: belowReappears);
-				await below.Presenter.OnAfterEnter(EmptyScreenDataReader.Instance, safeCt);
+				await below.Presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, safeCt);
 			}
 			else if (transition != null)
 			{
@@ -560,7 +560,7 @@ namespace ScreenFramework
 			newEntry.View.SetActive(true);
 			await newEntry.Presenter.OnBeforeEnter(newEntry.PushPayload, safeCt);
 			await RunEnterAsync(newEntry, transition, safeCt);
-			await newEntry.Presenter.OnAfterEnter(EmptyScreenDataReader.Instance, safeCt);
+			await newEntry.Presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, safeCt);
 			newEntry.PushPayload = null;
 		}
 
@@ -568,12 +568,12 @@ namespace ScreenFramework
 		// 内部ヘルパー
 		// ===========================================================================
 
-		async UniTask<LiveEntry> CreateAndPreloadAsync(IScreenIdentifier id, IScreenData data, CancellationToken ct)
+		async UniTask<LiveEntry> CreateAndPreloadAsync(IScreenIdentifier id, INavigationData data, CancellationToken ct)
 		{
 			var presenter = id.CreatePresenter(_services);
 			presenter.AssignServices(_services);
 			var handle = id.CreateHandle(_services);
-			var pushStore = new ScreenDataStore();
+			var pushStore = new NavigationDataStore();
 			if (data != null) pushStore.WriteUntyped(data);
 
 			try
@@ -617,10 +617,10 @@ namespace ScreenFramework
 		/// それ以外（DismissAll / Reset / Change / Push の Cover で押し出され / PopTo 中間 / Replace 上書き）は
 		/// awaiter を TrySetCanceled し、OCE で抜けさせる。
 		/// </summary>
-		async UniTask ExitPreviousAsync(LiveEntry entry, ScreenCacheMode cacheMode, bool isPop, CancellationToken ct, ScreenDataStore returnStore = null, bool isNormalPop = false)
+		async UniTask ExitPreviousAsync(LiveEntry entry, ScreenCacheMode cacheMode, bool isPop, CancellationToken ct, NavigationDataStore returnStore = null, bool isNormalPop = false)
 		{
-			var store = returnStore ?? new ScreenDataStore();
-			var writer = (IScreenDataWriter)store;
+			var store = returnStore ?? new NavigationDataStore();
+			var writer = (INavigationDataWriter)store;
 			await entry.Presenter.OnBeforeExit(writer, ct);
 			var anim = entry.View.As<IScreenAnimatedView>();
 			if (anim != null) await anim.PlayExit(ct);
@@ -741,8 +741,8 @@ namespace ScreenFramework
 			public bool Modal;
 			public bool Suspended;
 			public GameObject ModalBlocker;
-			public ScreenDataStore PushPayload;
-			public UniTaskCompletionSource<IScreenDataReader> ResultSource;
+			public NavigationDataStore PushPayload;
+			public UniTaskCompletionSource<INavigationDataReader> ResultSource;
 		}
 	}
 }

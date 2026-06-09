@@ -14,7 +14,7 @@ namespace Sample
 	public record SampleScreenId<TMockView, TView, TPresenter, TResult> : AddressableScreenId<TMockView, TResult>
 		where TMockView : class, new()
 		where TPresenter : IScreenPresenter
-		where TResult : IScreenData
+		where TResult : INavigationData
 	{
 		protected override string AddressableKey => $"Views/{typeof(TView).Name}";
 		protected override IScreenPresenter MakePresenter() => Activator.CreateInstance<TPresenter>();

@@ -3,23 +3,23 @@ using System.Collections.Generic;
 
 namespace ScreenFramework
 {
-	public interface IScreenData { }
+	public interface INavigationData { }
 
-	public interface IScreenDataReader
+	public interface INavigationDataReader
 	{
-		bool TryRead<T>(out T data) where T : IScreenData;
+		bool TryRead<T>(out T data) where T : INavigationData;
 	}
 
-	public interface IScreenDataWriter
+	public interface INavigationDataWriter
 	{
-		void Write<T>(T data) where T : IScreenData;
+		void Write<T>(T data) where T : INavigationData;
 	}
 
-	internal sealed class ScreenDataStore : IScreenDataReader, IScreenDataWriter
+	internal sealed class NavigationDataStore : INavigationDataReader, INavigationDataWriter
 	{
-		readonly Dictionary<Type, IScreenData> _data = new();
+		readonly Dictionary<Type, INavigationData> _data = new();
 
-		public bool TryRead<T>(out T data) where T : IScreenData
+		public bool TryRead<T>(out T data) where T : INavigationData
 		{
 			if (_data.TryGetValue(typeof(T), out var value))
 			{
@@ -30,7 +30,7 @@ namespace ScreenFramework
 			return false;
 		}
 
-		public void Write<T>(T data) where T : IScreenData
+		public void Write<T>(T data) where T : INavigationData
 		{
 			_data[typeof(T)] = data;
 		}
@@ -38,7 +38,7 @@ namespace ScreenFramework
 		/// <summary>
 		/// 実行時の型でキー付けして書き込む（PushOptions.Data などの boxed 経路向け）。
 		/// </summary>
-		public void WriteUntyped(IScreenData data)
+		public void WriteUntyped(INavigationData data)
 		{
 			if (data == null) return;
 			_data[data.GetType()] = data;
@@ -47,10 +47,10 @@ namespace ScreenFramework
 		public void Clear() => _data.Clear();
 	}
 
-	internal sealed class EmptyScreenDataReader : IScreenDataReader
+	internal sealed class EmptyNavigationDataReader : INavigationDataReader
 	{
-		public static readonly EmptyScreenDataReader Instance = new();
-		public bool TryRead<T>(out T data) where T : IScreenData
+		public static readonly EmptyNavigationDataReader Instance = new();
+		public bool TryRead<T>(out T data) where T : INavigationData
 		{
 			data = default;
 			return false;

@@ -11,7 +11,7 @@ namespace Sample
 		: DialogPresenter<TInput, TOutput, TResult>
 		where TInput : class
 		where TOutput : class
-		where TResult : IScreenData
+		where TResult : INavigationData
 	{
 		protected SampleRegistry Registry => (SampleRegistry)Services;
 	}

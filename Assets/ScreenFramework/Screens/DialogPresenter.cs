@@ -14,7 +14,7 @@ namespace ScreenFramework
 	public abstract class DialogPresenter<TInput, TOutput, TResult> : ScreenPresenter<TInput, TOutput>
 		where TInput : class
 		where TOutput : class
-		where TResult : IScreenData
+		where TResult : INavigationData
 	{
 		TResult _result;
 		bool _hasResult;
@@ -27,7 +27,7 @@ namespace ScreenFramework
 		}
 
 		/// <summary>OnBeforeExit を固定化して writer 書き込みを基底に閉じ込める。</summary>
-		protected sealed override UniTask OnBeforeExit(IScreenDataWriter writer, CancellationToken ct)
+		protected sealed override UniTask OnBeforeExit(INavigationDataWriter writer, CancellationToken ct)
 		{
 			if (_hasResult) writer.Write(_result);
 			return OnBeforeExitCore(ct);

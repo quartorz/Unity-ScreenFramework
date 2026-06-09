@@ -25,7 +25,7 @@ namespace ScreenFramework
 	/// </summary>
 	public abstract record AddressableScreenId<TMockView, TResult> : ScreenIdentifier<TResult>
 		where TMockView : class, new()
-		where TResult : IScreenData
+		where TResult : INavigationData
 	{
 		protected abstract string AddressableKey { get; }
 		protected abstract IScreenPresenter MakePresenter();

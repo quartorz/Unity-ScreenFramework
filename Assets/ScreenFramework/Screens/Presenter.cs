@@ -5,6 +5,13 @@ namespace ScreenFramework
 {
 	public interface IScreenPresenter
 	{
+		/// <summary>
+		/// インスタンス自身の組み立て用 hook。<see cref="AssignServices"/> 直後・OnBeforeLoad より前に
+		/// インスタンスごとに必ず一度だけ呼ばれる。Model の構築など Services を要する初期化はここに書く。
+		/// 遷移由来の引数（reader / ctx）は渡さない。初期 navigation data が要る初期化は OnBeforeLoad に書くこと。
+		/// </summary>
+		UniTask OnInitialize(CancellationToken ct) => UniTask.CompletedTask;
+
 		// 6 hook は遷移ごとの ITransitionContext を受け取る。Effect と同じ ctx を共有するので、
 		// Presenter から ctx.PublishStage / ctx.WaitForStage で Effect と細粒度連携できる。
 		// reader/writer はフェーズ固有の bag（Pop の returnStore 等）で、ctx.Reader/Writer とは別物なので両方渡す。
@@ -39,6 +46,8 @@ namespace ScreenFramework
 
 		void IScreenPresenter.AssignServices(ScreenServices services) => Services = services;
 
+		UniTask IScreenPresenter.OnInitialize(CancellationToken ct) => OnInitialize(ct);
+
 		UniTask IScreenPresenter.OnBeforeLoad(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct)
 			=> OnBeforeLoad(reader, ctx, ct);
 
@@ -56,6 +65,9 @@ namespace ScreenFramework
 		UniTask IScreenPresenter.OnSuspend(CancellationToken ct) => OnSuspend(ct);
 		UniTask IScreenPresenter.OnResume(CancellationToken ct) => OnResume(ct);
 		UniTask IScreenPresenter.OnAfterUnload(INavigationDataWriter writer, CancellationToken ct) => OnAfterUnload(writer, ct);
+
+		/// <summary>Model の構築など、Services を要するインスタンス初期化用。AssignServices 後・OnBeforeLoad 前に一度だけ呼ばれる。</summary>
+		protected virtual UniTask OnInitialize(CancellationToken ct) => UniTask.CompletedTask;
 
 		protected virtual UniTask OnBeforeLoad(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
 		protected virtual UniTask OnAfterLoad(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;

@@ -655,6 +655,8 @@ namespace ScreenFramework
 		{
 			var presenter = id.CreatePresenter(_services);
 			presenter.AssignServices(_services);
+			// インスタンス組み立て hook。まだ何も load していないので例外時の cleanup 不要（そのまま伝播）
+			await presenter.OnInitialize(ct);
 			var handle = id.CreateHandle(_services);
 
 			try

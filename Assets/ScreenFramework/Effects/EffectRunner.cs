@@ -36,7 +36,6 @@ namespace ScreenFramework
 		GameObject _instanceGo;
 		AsyncOperationHandle<GameObject> _handle;
 		bool _disabled;          // 例外発生後の以降 hook skip 用
-		bool _deferDestroy;      // 完走必須ゾーンで例外 → 遷移完了まで生かす
 		bool _ownsHandle;        // InstantiateAsync で取った handle を ReleaseInstance で返す必要があるか
 
 		public bool IsAlive => _instance != null;
@@ -49,7 +48,9 @@ namespace ScreenFramework
 		}
 
 		/// <summary>
-		/// Effect prefab の Load + Instantiate。失敗時は Disabled 化して以降 no-op。
+		/// Effect prefab の Load + Instantiate + <see cref="ScreenEffect.OnInitialize"/> の await。
+		/// 失敗時は Disabled 化して以降 no-op。
+		/// OnInitialize はまだ何も表示していない段階なので、ゾーンによらず例外で即 Destroy する。
 		/// </summary>
 		public async UniTask LoadAndInstantiateAsync(CancellationToken ct)
 		{
@@ -80,14 +81,18 @@ namespace ScreenFramework
 					DestroyNow();
 					return;
 				}
+
+				await _instance.OnInitialize(_ctx, ct);
 			}
-			catch (OperationCanceledException)
+			catch (OperationCanceledException) when (ct.IsCancellationRequested)
 			{
 				DestroyNow();
 				throw;
 			}
 			catch (Exception e)
 			{
+				// ct 起因でない OCE (OnInitialize の誤実装等) もここに落ちる。
+				// Pop/Close は ct=None で protective try の外から呼ぶため、漏らすと遷移本筋が死ぬ
 				Debug.LogException(e);
 				DestroyNow();
 				_disabled = true;
@@ -144,10 +149,10 @@ namespace ScreenFramework
 			}
 			catch (Exception e)
 			{
-				// 完走必須ゾーン: 残 hook skip + Destroy は遷移完了まで遅延（継ぎ目隠しの責務があり得るため）
+				// 完走必須ゾーン: 残 hook skip のみ。ここで DestroyNow を呼ばないことが「Destroy 遅延」の実体で、
+				// 実際の破棄は遷移完了時の Finish に任せる（継ぎ目隠しの責務があり得るため）
 				Debug.LogException(e);
 				_disabled = true;
-				_deferDestroy = true;
 			}
 		}
 

@@ -80,7 +80,7 @@ namespace ScreenFramework
 
 		/// <summary>
 		/// Push 時のライフサイクル一式を実機 Navigator と同順で呼ぶ。
-		/// OnBeforeLoad → OnAfterLoad → OnBeforeEnter → OnAfterEnter。
+		/// OnInitialize → OnBeforeLoad → OnAfterLoad → OnBeforeEnter → OnAfterEnter。
 		/// <paramref name="reader"/> は OnBeforeLoad / OnBeforeEnter に渡される push payload 相当。
 		/// 任意のフェーズで例外が出れば呼び出し側に伝播する（実機の挙動と同じ）。
 		/// </summary>
@@ -96,6 +96,7 @@ namespace ScreenFramework
 			reader ??= EmptyNavigationDataReader.Instance;
 			context ??= NewTransition(OperationKind.Push);
 
+			await presenter.OnInitialize(ct);
 			await presenter.OnBeforeLoad(reader, context, ct);
 			await presenter.OnAfterLoad(ViewOf(view), reader, context, ct);
 			await presenter.OnBeforeEnter(reader, context, ct);

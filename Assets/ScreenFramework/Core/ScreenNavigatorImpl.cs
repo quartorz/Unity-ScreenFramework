@@ -90,7 +90,7 @@ namespace ScreenFramework
 				var from = Current;
 				var to = _history.Count >= 2 ? _history[_history.Count - 2] : null;
 				FireStart(from, to, ScreenTransitionKind.Pop);
-				try { await PopCore(OperationKind.Pop, myCt); }
+				try { await PopCore(OperationKind.Pop, opt.Configure, myCt); }
 				finally { FireEnd(from, Current, ScreenTransitionKind.Pop); }
 			});
 		}
@@ -113,7 +113,7 @@ namespace ScreenFramework
 					var from = Current;
 					var to = _history.Count >= 2 ? _history[_history.Count - 2] : null;
 					FireStart(from, to, ScreenTransitionKind.Pop);
-					try { await CloseTopAsync(myCt); }
+					try { await CloseTopAsync(opt.Configure, myCt); }
 					finally { FireEnd(from, Current, ScreenTransitionKind.Pop); }
 				}
 				else
@@ -156,7 +156,7 @@ namespace ScreenFramework
 					await ClearAllExceptCurrentAsync(myCt);
 					await ReplaceCore(OperationKind.Change, id, new ReplaceOptions
 					{
-						Data = opt.Data,
+						Configure = opt.Configure,
 						CachePolicyOverride = opt.CachePolicyOverride,
 						ModalOverride = opt.ModalOverride,
 					}, myCt);
@@ -177,7 +177,7 @@ namespace ScreenFramework
 					await DismissAllInternal(myCt);
 					await PushCore(OperationKind.Reset, id, new PushOptions
 					{
-						Data = opt.Data,
+						Configure = opt.Configure,
 						CachePolicyOverride = opt.CachePolicyOverride,
 						ModalOverride = opt.ModalOverride,
 					}, resultSource: null, myCt);
@@ -214,7 +214,7 @@ namespace ScreenFramework
 						_history.RemoveAtInternal(i);
 					}
 
-					await PopCore(OperationKind.PopTo, myCt);
+					await PopCore(OperationKind.PopTo, opt.Configure, myCt);
 				}
 				finally { FireEnd(from, Current, ScreenTransitionKind.PopTo); }
 			});
@@ -303,13 +303,13 @@ namespace ScreenFramework
 		// ===========================================================================
 
 		/// <summary>
-		/// 遷移用の TransitionContext を作る。data は Push 系の payload。
+		/// 遷移用の TransitionContext を作る。configure は呼び出し側が bag に書き込むコールバック。
 		/// Pop 系は from=top, to=below で呼ばれる。
 		/// </summary>
-		TransitionContext NewContext(OperationKind kind, IScreenIdentifier from, IScreenIdentifier to, INavigationData data, out NavigationDataStore store)
+		TransitionContext NewContext(OperationKind kind, IScreenIdentifier from, IScreenIdentifier to, Action<INavigationDataWriter> configure, out NavigationDataStore store)
 		{
 			store = new NavigationDataStore();
-			if (data != null) store.WriteUntyped(data);
+			configure?.Invoke(store);
 			return new TransitionContext(kind, from, to, store, store);
 		}
 
@@ -348,182 +348,119 @@ namespace ScreenFramework
 		async UniTask<LiveEntry> PushCore(OperationKind kind, IScreenIdentifier id, PushOptions opt, UniTaskCompletionSource<INavigationDataReader> resultSource, CancellationToken ct)
 		{
 			var from = Current;
-			var ctx = NewContext(kind, from, id, opt.Data, out var pushStore);
+			var ctx = NewContext(kind, from, id, opt.Configure, out var pushStore);
 
-			// --- ロールバック可能ゾーン ---
 			EffectRunner effect = null;
-			LiveEntry entry;
 			try
 			{
-				effect = await ResolveAndInstantiateEffectAsync(ctx, ct);
-				entry = await CreateAndPreloadAsync(id, pushStore, ctx, effect, ct);
-				ct.ThrowIfCancellationRequested();
-			}
-			catch (OperationCanceledException)
-			{
-				effect?.Finish();
-				resultSource?.TrySetCanceled();
-				throw;
-			}
-			entry.ResultSource = resultSource;
-
-			// --- 完走必須ゾーン ---
-			var safeCt = CancellationToken.None;
-			entry.Modal = ResolveModal(opt.ModalOverride);
-
-			if (_live.Count > 0)
-			{
-				if (_config.StackMode == StackMode.Cover)
+				// --- ロールバック可能ゾーン ---
+				LiveEntry entry;
+				try
 				{
-					var prev = _live[_live.Count - 1];
-					var cache = ResolveCacheMode(_history[_history.Count - 1], opt.CachePolicyOverride);
-					await ExitPreviousAsync(prev, cache, isPop: false, effect, safeCt);
-					if (cache == ScreenCacheMode.DestroyOnCover)
-						_live[_live.Count - 1] = null;
+					effect = await ResolveAndInstantiateEffectAsync(ctx, ct);
+					entry = await CreateAndPreloadAsync(id, pushStore, ctx, effect, EffectZone.Rollback, ct);
+					ct.ThrowIfCancellationRequested();
+				}
+				catch (OperationCanceledException)
+				{
+					resultSource?.TrySetCanceled();
+					throw;
+				}
+				entry.ResultSource = resultSource;
+
+				// --- 完走必須ゾーン ---
+				var safeCt = CancellationToken.None;
+				entry.Modal = ResolveModal(opt.ModalOverride);
+
+				if (_live.Count > 0)
+				{
+					if (_config.StackMode == StackMode.Cover)
+					{
+						var prev = _live[_live.Count - 1];
+						var cache = ResolveCacheMode(_history[_history.Count - 1], opt.CachePolicyOverride);
+						await ExitPreviousAsync(prev, cache, isPop: false, effect, safeCt);
+						if (cache == ScreenCacheMode.DestroyOnCover)
+							_live[_live.Count - 1] = null;
+					}
+					else
+					{
+						// Stack mode: 前画面はそのまま残す。Effect 側だけ Exit hook を進める。
+						if (effect != null)
+						{
+							await effect.OnBeforeExit(EffectZone.Commit, safeCt);
+							await effect.OnAfterExit(EffectZone.Commit, safeCt);
+						}
+					}
 				}
 				else
 				{
-					// Stack mode: 前画面はそのまま残す。Effect 側だけ Exit hook を進める。
+					// 最初の Push: prev exit 無し。Effect 側だけ Exit hook を進める。
 					if (effect != null)
 					{
-						await effect.OnBeforeExit(safeCt);
-						await effect.OnAfterExit(safeCt);
+						await effect.OnBeforeExit(EffectZone.Commit, safeCt);
+						await effect.OnAfterExit(EffectZone.Commit, safeCt);
 					}
 				}
-			}
-			else
-			{
-				// 最初の Push: prev exit 無し。Effect 側だけ Exit hook を進める。
-				if (effect != null)
+
+				if (ShouldCreateBlocker(entry.Modal) && _live.Count > 0)
 				{
-					await effect.OnBeforeExit(safeCt);
-					await effect.OnAfterExit(safeCt);
+					entry.ModalBlocker = CreateModalBlocker(_config.Container.Root);
 				}
-			}
 
-			if (ShouldCreateBlocker(entry.Modal) && _live.Count > 0)
+				entry.View.SetParent(_config.Container.Root);
+				entry.View.SetActive(true);
+
+				await WhenBoth(
+					entry.Presenter.OnBeforeEnter(entry.PushPayload, safeCt),
+					effect?.OnBeforeEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
+
+				await RunEnterAsync(entry, effect, safeCt);
+
+				await WhenBoth(
+					entry.Presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, safeCt),
+					effect?.OnAfterEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
+				entry.PushPayload = null;
+
+				_history.Push(id);
+				_live.Add(entry);
+				return entry;
+			}
+			finally
 			{
-				entry.ModalBlocker = CreateModalBlocker(_config.Container.Root);
+				effect?.Finish();
 			}
-
-			entry.View.SetParent(_config.Container.Root);
-			entry.View.SetActive(true);
-
-			await WhenBoth(
-				entry.Presenter.OnBeforeEnter(entry.PushPayload, safeCt),
-				effect?.OnBeforeEnter(safeCt) ?? UniTask.CompletedTask);
-
-			await RunEnterAsync(entry, effect, safeCt);
-
-			await WhenBoth(
-				entry.Presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, safeCt),
-				effect?.OnAfterEnter(safeCt) ?? UniTask.CompletedTask);
-			entry.PushPayload = null;
-
-			_history.Push(id);
-			_live.Add(entry);
-			effect?.Finish();
-			return entry;
 		}
 
-		async UniTask PopCore(OperationKind kind, CancellationToken ct)
+		async UniTask PopCore(OperationKind kind, Action<INavigationDataWriter> configure, CancellationToken ct)
 		{
 			if (_history.Count <= 1) return;
 
 			var from = Current;
 			var toId = _history[_history.Count - 2];
-			var ctx = NewContext(kind, from, toId, data: null, out _);
+			var ctx = NewContext(kind, from, toId, configure, out _);
 
 			// Pop は最初から完走必須ゾーン
 			var safeCt = CancellationToken.None;
 
 			var effect = await ResolveAndInstantiateEffectAsync(ctx, safeCt);
-
-			var top = _live[_live.Count - 1];
-			var returnStore = new NavigationDataStore();
-			await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: true, effect, safeCt, returnStore, isNormalPop: true);
-			DestroyBlockerIfAny(top);
-
-			_live.RemoveAt(_live.Count - 1);
-			_history.PopCurrent();
-
-			var belowIndex = _live.Count - 1;
-			var below = _live[belowIndex];
-			bool belowReappears;
-			if (below == null)
+			try
 			{
-				var belowId = _history[belowIndex];
-				below = await CreateAndPreloadAsync(belowId, pushStore: new NavigationDataStore(), ctx, effect, safeCt);
-				below.View.SetParent(_config.Container.Root);
-				below.View.SetActive(true);
-				_live[belowIndex] = below;
-				belowReappears = true;
-			}
-			else if (below.Suspended)
-			{
-				below.View.SetActive(true);
-				await below.Presenter.OnResume(safeCt);
-				below.Suspended = false;
-				belowReappears = true;
-			}
-			else
-			{
-				below.View.SetActive(true);
-				belowReappears = false;
-			}
+				var top = _live[_live.Count - 1];
+				var returnStore = new NavigationDataStore();
+				await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: true, effect, safeCt, returnStore, isNormalPop: true);
+				DestroyBlockerIfAny(top);
 
-			await WhenBoth(
-				below.Presenter.OnBeforeEnter(returnStore, safeCt),
-				effect?.OnBeforeEnter(safeCt) ?? UniTask.CompletedTask);
-			await RunEnterAsync(below, effect, safeCt, playViewEnter: belowReappears);
-			await WhenBoth(
-				below.Presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, safeCt),
-				effect?.OnAfterEnter(safeCt) ?? UniTask.CompletedTask);
+				_live.RemoveAt(_live.Count - 1);
+				_history.PopCurrent();
 
-			effect?.Finish();
-		}
-
-		/// <summary>
-		/// 中間エントリを黙って消す（Effect なし）。
-		/// </summary>
-		async UniTask CloseMiddleAsync(int idx, CancellationToken ct)
-		{
-			var entry = _live[idx];
-			var safeCt = CancellationToken.None;
-			var returnStore = new NavigationDataStore();
-			await ExitPreviousAsync(entry, ScreenCacheMode.DestroyOnCover, isPop: true, effect: null, safeCt, returnStore, isNormalPop: true);
-			DestroyBlockerIfAny(entry);
-			_live.RemoveAt(idx);
-			_history.RemoveAtInternal(idx);
-		}
-
-		async UniTask CloseTopAsync(CancellationToken ct)
-		{
-			if (_live.Count == 0) return;
-
-			var from = Current;
-			var toId = _history.Count >= 2 ? _history[_history.Count - 2] : null;
-			var ctx = NewContext(OperationKind.Close, from, toId, data: null, out _);
-
-			var safeCt = CancellationToken.None;
-			var effect = await ResolveAndInstantiateEffectAsync(ctx, safeCt);
-
-			var top = _live[_live.Count - 1];
-			var returnStore = new NavigationDataStore();
-			await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: true, effect, safeCt, returnStore, isNormalPop: true);
-			DestroyBlockerIfAny(top);
-			_live.RemoveAt(_live.Count - 1);
-			_history.PopCurrent();
-
-			if (_live.Count > 0)
-			{
 				var belowIndex = _live.Count - 1;
 				var below = _live[belowIndex];
 				bool belowReappears;
 				if (below == null)
 				{
 					var belowId = _history[belowIndex];
-					below = await CreateAndPreloadAsync(belowId, pushStore: new NavigationDataStore(), ctx, effect, safeCt);
+					// 復元 load は Exit より後 = 完走必須ゾーン。Load hook も Commit で呼ぶ。
+					below = await CreateAndPreloadAsync(belowId, pushStore: new NavigationDataStore(), ctx, effect, EffectZone.Commit, safeCt);
 					below.View.SetParent(_config.Container.Root);
 					below.View.SetActive(true);
 					_live[belowIndex] = below;
@@ -544,20 +481,98 @@ namespace ScreenFramework
 
 				await WhenBoth(
 					below.Presenter.OnBeforeEnter(returnStore, safeCt),
-					effect?.OnBeforeEnter(safeCt) ?? UniTask.CompletedTask);
+					effect?.OnBeforeEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
 				await RunEnterAsync(below, effect, safeCt, playViewEnter: belowReappears);
 				await WhenBoth(
 					below.Presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, safeCt),
-					effect?.OnAfterEnter(safeCt) ?? UniTask.CompletedTask);
+					effect?.OnAfterEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
 			}
-			else if (effect != null)
+			finally
 			{
-				// 下が無い：Effect の Enter hook だけ完走させる
-				await effect.OnBeforeEnter(safeCt);
-				await effect.OnAfterEnter(safeCt);
+				effect?.Finish();
 			}
+		}
 
-			effect?.Finish();
+		/// <summary>
+		/// 中間エントリを黙って消す（Effect なし）。
+		/// </summary>
+		async UniTask CloseMiddleAsync(int idx, CancellationToken ct)
+		{
+			var entry = _live[idx];
+			var safeCt = CancellationToken.None;
+			var returnStore = new NavigationDataStore();
+			await ExitPreviousAsync(entry, ScreenCacheMode.DestroyOnCover, isPop: true, effect: null, safeCt, returnStore, isNormalPop: true);
+			DestroyBlockerIfAny(entry);
+			_live.RemoveAt(idx);
+			_history.RemoveAtInternal(idx);
+		}
+
+		async UniTask CloseTopAsync(Action<INavigationDataWriter> configure, CancellationToken ct)
+		{
+			if (_live.Count == 0) return;
+
+			var from = Current;
+			var toId = _history.Count >= 2 ? _history[_history.Count - 2] : null;
+			var ctx = NewContext(OperationKind.Close, from, toId, configure, out _);
+
+			var safeCt = CancellationToken.None;
+			var effect = await ResolveAndInstantiateEffectAsync(ctx, safeCt);
+			try
+			{
+				var top = _live[_live.Count - 1];
+				var returnStore = new NavigationDataStore();
+				await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: true, effect, safeCt, returnStore, isNormalPop: true);
+				DestroyBlockerIfAny(top);
+				_live.RemoveAt(_live.Count - 1);
+				_history.PopCurrent();
+
+				if (_live.Count > 0)
+				{
+					var belowIndex = _live.Count - 1;
+					var below = _live[belowIndex];
+					bool belowReappears;
+					if (below == null)
+					{
+						var belowId = _history[belowIndex];
+						// 復元 load は Exit より後 = 完走必須ゾーン。
+						below = await CreateAndPreloadAsync(belowId, pushStore: new NavigationDataStore(), ctx, effect, EffectZone.Commit, safeCt);
+						below.View.SetParent(_config.Container.Root);
+						below.View.SetActive(true);
+						_live[belowIndex] = below;
+						belowReappears = true;
+					}
+					else if (below.Suspended)
+					{
+						below.View.SetActive(true);
+						await below.Presenter.OnResume(safeCt);
+						below.Suspended = false;
+						belowReappears = true;
+					}
+					else
+					{
+						below.View.SetActive(true);
+						belowReappears = false;
+					}
+
+					await WhenBoth(
+						below.Presenter.OnBeforeEnter(returnStore, safeCt),
+						effect?.OnBeforeEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
+					await RunEnterAsync(below, effect, safeCt, playViewEnter: belowReappears);
+					await WhenBoth(
+						below.Presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, safeCt),
+						effect?.OnAfterEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
+				}
+				else if (effect != null)
+				{
+					// 下が無い：Effect の Enter hook だけ完走させる
+					await effect.OnBeforeEnter(EffectZone.Commit, safeCt);
+					await effect.OnAfterEnter(EffectZone.Commit, safeCt);
+				}
+			}
+			finally
+			{
+				effect?.Finish();
+			}
 		}
 
 		async UniTask ReplaceCore(OperationKind kind, IScreenIdentifier id, ReplaceOptions opt, CancellationToken ct)
@@ -566,7 +581,7 @@ namespace ScreenFramework
 			{
 				await PushCore(kind, id, new PushOptions
 				{
-					Data = opt.Data,
+					Configure = opt.Configure,
 					CachePolicyOverride = opt.CachePolicyOverride,
 					ModalOverride = opt.ModalOverride,
 				}, resultSource: null, ct);
@@ -574,51 +589,47 @@ namespace ScreenFramework
 			}
 
 			var from = Current;
-			var ctx = NewContext(kind, from, id, opt.Data, out var pushStore);
+			var ctx = NewContext(kind, from, id, opt.Configure, out var pushStore);
 
-			// ロールバック可能ゾーン
 			EffectRunner effect = null;
-			LiveEntry newEntry;
 			try
 			{
+				// ロールバック可能ゾーン
 				effect = await ResolveAndInstantiateEffectAsync(ctx, ct);
-				newEntry = await CreateAndPreloadAsync(id, pushStore, ctx, effect, ct);
+				var newEntry = await CreateAndPreloadAsync(id, pushStore, ctx, effect, EffectZone.Rollback, ct);
 				ct.ThrowIfCancellationRequested();
+
+				// 完走必須ゾーン
+				var safeCt = CancellationToken.None;
+				var top = _live[_live.Count - 1];
+				await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: false, effect, safeCt);
+				DestroyBlockerIfAny(top);
+
+				newEntry.Modal = ResolveModal(opt.ModalOverride);
+				if (ShouldCreateBlocker(newEntry.Modal) && _live.Count >= 2)
+				{
+					newEntry.ModalBlocker = CreateModalBlocker(_config.Container.Root);
+				}
+
+				_live[_live.Count - 1] = newEntry;
+				_history.ReplaceCurrent(id);
+
+				newEntry.View.SetParent(_config.Container.Root);
+				newEntry.View.SetActive(true);
+
+				await WhenBoth(
+					newEntry.Presenter.OnBeforeEnter(newEntry.PushPayload, safeCt),
+					effect?.OnBeforeEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
+				await RunEnterAsync(newEntry, effect, safeCt);
+				await WhenBoth(
+					newEntry.Presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, safeCt),
+					effect?.OnAfterEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
+				newEntry.PushPayload = null;
 			}
-			catch (OperationCanceledException)
+			finally
 			{
 				effect?.Finish();
-				throw;
 			}
-
-			// 完走必須ゾーン
-			var safeCt = CancellationToken.None;
-			var top = _live[_live.Count - 1];
-			await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: false, effect, safeCt);
-			DestroyBlockerIfAny(top);
-
-			newEntry.Modal = ResolveModal(opt.ModalOverride);
-			if (ShouldCreateBlocker(newEntry.Modal) && _live.Count >= 2)
-			{
-				newEntry.ModalBlocker = CreateModalBlocker(_config.Container.Root);
-			}
-
-			_live[_live.Count - 1] = newEntry;
-			_history.ReplaceCurrent(id);
-
-			newEntry.View.SetParent(_config.Container.Root);
-			newEntry.View.SetActive(true);
-
-			await WhenBoth(
-				newEntry.Presenter.OnBeforeEnter(newEntry.PushPayload, safeCt),
-				effect?.OnBeforeEnter(safeCt) ?? UniTask.CompletedTask);
-			await RunEnterAsync(newEntry, effect, safeCt);
-			await WhenBoth(
-				newEntry.Presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, safeCt),
-				effect?.OnAfterEnter(safeCt) ?? UniTask.CompletedTask);
-			newEntry.PushPayload = null;
-
-			effect?.Finish();
 		}
 
 		// ===========================================================================
@@ -628,8 +639,10 @@ namespace ScreenFramework
 		/// <summary>
 		/// プレハブ Load + presenter.OnBeforeLoad/OnAfterLoad を並列で走らせる。
 		/// effect が non-null なら effect の同名 hook も並列で実行する（個別 try/catch は EffectRunner 側）。
+		/// <paramref name="loadZone"/> は Effect の Load hook の例外時挙動を決める。Push/Replace の新規 load は
+		/// <see cref="EffectZone.Rollback"/>、Pop/Close の復元 load は Exit 後なので <see cref="EffectZone.Commit"/>。
 		/// </summary>
-		async UniTask<LiveEntry> CreateAndPreloadAsync(IScreenIdentifier id, NavigationDataStore pushStore, ITransitionContext ctx, EffectRunner effect, CancellationToken ct)
+		async UniTask<LiveEntry> CreateAndPreloadAsync(IScreenIdentifier id, NavigationDataStore pushStore, ITransitionContext ctx, EffectRunner effect, EffectZone loadZone, CancellationToken ct)
 		{
 			var presenter = id.CreatePresenter(_services);
 			presenter.AssignServices(_services);
@@ -640,14 +653,14 @@ namespace ScreenFramework
 				// 並列起動: Presenter.OnBeforeLoad / handle.Load / Effect.OnBeforeLoad
 				var loadTask = handle.Load(progress: null, ct);
 				var preloadTask = presenter.OnBeforeLoad(pushStore, ct);
-				var effectBeforeLoad = effect?.OnBeforeLoad(ct) ?? UniTask.CompletedTask;
+				var effectBeforeLoad = effect?.OnBeforeLoad(loadZone, ct) ?? UniTask.CompletedTask;
 				await UniTask.WhenAll(preloadTask, effectBeforeLoad);
 				var view = await loadTask;
 
 				view.SetActive(false);
 				await WhenBoth(
 					presenter.OnAfterLoad(view, pushStore, ct),
-					effect?.OnAfterLoad(ct) ?? UniTask.CompletedTask);
+					effect?.OnAfterLoad(loadZone, ct) ?? UniTask.CompletedTask);
 
 				return new LiveEntry
 				{
@@ -676,9 +689,10 @@ namespace ScreenFramework
 			var store = returnStore ?? new NavigationDataStore();
 			var writer = (INavigationDataWriter)store;
 
+			// Exit は常に完走必須ゾーン。
 			await WhenBoth(
 				entry.Presenter.OnBeforeExit(writer, ct),
-				effect?.OnBeforeExit(ct) ?? UniTask.CompletedTask);
+				effect?.OnBeforeExit(EffectZone.Commit, ct) ?? UniTask.CompletedTask);
 
 			var anim = entry.View.As<IScreenAnimatedView>();
 			if (anim != null) await anim.PlayExit(ct);
@@ -686,7 +700,7 @@ namespace ScreenFramework
 
 			await WhenBoth(
 				entry.Presenter.OnAfterExit(writer, ct),
-				effect?.OnAfterExit(ct) ?? UniTask.CompletedTask);
+				effect?.OnAfterExit(EffectZone.Commit, ct) ?? UniTask.CompletedTask);
 
 			if (cacheMode == ScreenCacheMode.DestroyOnCover || isPop)
 			{

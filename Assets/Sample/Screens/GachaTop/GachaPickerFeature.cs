@@ -1,9 +1,11 @@
 using System;
+using System.Linq;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using R3;
 using Sample.Api;
 using Sample.Dialogs;
+using Sample.Effects;
 using ScreenFramework;
 using UnityEngine;
 
@@ -102,7 +104,13 @@ namespace Sample
 			try
 			{
 				var resp = await _model.Pull(count, CancellationToken.None);
-				await ScreenNavigator.Page.Push(new GachaResultScreenId(resp));
+				var maxRarity = resp.items?.Length > 0 ? resp.items.Max(i => i.rarity) : 0;
+				await ScreenNavigator.Page.Push(
+					new GachaResultScreenId(resp),
+					new PushOptions
+					{
+						Configure = w => w.Write(new GachaResultEffectParam(maxRarity, resp.items?.Length ?? 0)),
+					});
 			}
 			catch (OperationCanceledException) { }
 			catch (ApiException) { /* SystemDialog 表示済み */ }

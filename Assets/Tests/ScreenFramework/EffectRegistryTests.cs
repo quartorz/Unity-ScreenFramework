@@ -21,13 +21,24 @@ namespace Tests.ScreenFramework
 			public override IScreenPresenter CreatePresenter(ScreenServices s) => null;
 		}
 
-		sealed class TypeMatcher<T> : ScreenMatcher where T : IScreenIdentifier
+		/// <summary>
+		/// Unity の SO はジェネリック型を <c>CreateInstance&lt;T&gt;()</c> で生成すると
+		/// シリアライズ不能で null になることがあるため、非ジェネリックで Predicate を差し替える方式にする。
+		/// </summary>
+		sealed class FakeMatcher : ScreenMatcher
 		{
-			public override bool Match(IScreenIdentifier id, ITransitionContext ctx) => id is T;
+			System.Func<IScreenIdentifier, bool> _predicate;
+			public static FakeMatcher Create(System.Func<IScreenIdentifier, bool> predicate)
+			{
+				var m = ScriptableObject.CreateInstance<FakeMatcher>();
+				m._predicate = predicate;
+				return m;
+			}
+			public override bool Match(IScreenIdentifier id, ITransitionContext ctx) => _predicate(id);
 		}
 
-		static TypeMatcher<T> NewTypeMatcher<T>() where T : IScreenIdentifier
-			=> ScriptableObject.CreateInstance<TypeMatcher<T>>();
+		static FakeMatcher NewTypeMatcher<T>() where T : IScreenIdentifier
+			=> FakeMatcher.Create(id => id is T);
 
 		static EffectRegistry NewRegistry(params EffectRegistry.Row[] rows)
 		{

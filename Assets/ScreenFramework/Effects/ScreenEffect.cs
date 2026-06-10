@@ -14,8 +14,16 @@ namespace ScreenFramework
 	/// </para>
 	/// <para>
 	/// 例外を投げると framework 側がログ + 残 hook skip + 遷移続行で吸収する。
-	/// ロールバック可能ゾーン (Load〜OnAfterLoad) の例外は即 Destroy、
-	/// 完走必須ゾーン (Exit 以降) の例外は遷移完了まで Destroy 遅延される。
+	/// ロールバック可能ゾーン (Push/Replace の新規 load) の例外は即 Destroy、
+	/// 完走必須ゾーン (Exit 以降、および Pop/Close の復元 load) の例外は遷移完了まで Destroy 遅延される。
+	/// </para>
+	/// <para>
+	/// hook の呼び出し順序は操作種別で変わる。Push は OnBeforeLoad → OnAfterLoad → OnBeforeExit → ... の順だが、
+	/// Pop で下画面が破棄済みなら OnBeforeExit → ... → OnBeforeLoad → OnAfterLoad → OnBeforeEnter の順になり、
+	/// 下画面がキャッシュ済み（生存・suspended）の Pop では load hook は一切呼ばれない。
+	/// よって OnBeforeLoad が必ず最初に来る前提で初期化を書いてはならない。
+	/// load hook 以外（Exit/Enter）で参照する状態は、その hook 側で遅延初期化するか、
+	/// ctx.Kind / ctx.Reader を都度読むこと。
 	/// </para>
 	/// </summary>
 	public abstract class ScreenEffect : MonoBehaviour

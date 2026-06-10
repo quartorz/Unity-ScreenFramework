@@ -1,8 +1,15 @@
+using System;
+
 namespace ScreenFramework
 {
 	public readonly struct PushOptions
 	{
-		public INavigationData Data { get; init; }
+		/// <summary>
+		/// 遷移データ bag への書き込みを行うコールバック。宛先 Presenter / Effect が
+		/// 同じ bag を共有して読む（<see cref="INavigationDataReader"/> 経由）。
+		/// 複数の型を続けて Write してよい。
+		/// </summary>
+		public Action<INavigationDataWriter> Configure { get; init; }
 		public ScreenCacheMode? CachePolicyOverride { get; init; }
 		public bool? ModalOverride { get; init; }
 		public InterruptPriority InterruptPriority { get; init; }
@@ -10,12 +17,17 @@ namespace ScreenFramework
 
 	public readonly struct PopOptions
 	{
+		/// <summary>
+		/// 遷移データ bag への書き込みコールバック。Pop では revealed 画面は既存のため、
+		/// 主に Pop 遷移の Effect 用パラメータを seed する用途（戻り値の return store とは別チャネル）。
+		/// </summary>
+		public Action<INavigationDataWriter> Configure { get; init; }
 		public InterruptPriority InterruptPriority { get; init; }
 	}
 
 	public readonly struct ReplaceOptions
 	{
-		public INavigationData Data { get; init; }
+		public Action<INavigationDataWriter> Configure { get; init; }
 		public ScreenCacheMode? CachePolicyOverride { get; init; }
 		public bool? ModalOverride { get; init; }
 		public InterruptPriority InterruptPriority { get; init; }
@@ -23,7 +35,7 @@ namespace ScreenFramework
 
 	public readonly struct ChangeOptions
 	{
-		public INavigationData Data { get; init; }
+		public Action<INavigationDataWriter> Configure { get; init; }
 		public ScreenCacheMode? CachePolicyOverride { get; init; }
 		public bool? ModalOverride { get; init; }
 		public InterruptPriority InterruptPriority { get; init; }
@@ -31,7 +43,7 @@ namespace ScreenFramework
 
 	public readonly struct ResetOptions
 	{
-		public INavigationData Data { get; init; }
+		public Action<INavigationDataWriter> Configure { get; init; }
 		public ScreenCacheMode? CachePolicyOverride { get; init; }
 		public bool? ModalOverride { get; init; }
 		public InterruptPriority InterruptPriority { get; init; }
@@ -39,6 +51,7 @@ namespace ScreenFramework
 
 	public readonly struct PopToOptions
 	{
+		public Action<INavigationDataWriter> Configure { get; init; }
 		public InterruptPriority InterruptPriority { get; init; }
 	}
 

@@ -36,7 +36,7 @@ namespace ScreenFramework
 		}
 
 		/// <summary>
-		/// 実行時の型でキー付けして書き込む（PushOptions.Data などの boxed 経路向け）。
+		/// 実行時の型でキー付けして書き込む（boxed な INavigationData を渡す経路向け）。
 		/// </summary>
 		public void WriteUntyped(INavigationData data)
 		{

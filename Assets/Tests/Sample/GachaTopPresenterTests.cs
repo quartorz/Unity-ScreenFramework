@@ -5,6 +5,7 @@ using NUnit.Framework;
 using Sample;
 using Sample.Api;
 using Sample.Dialogs;
+using Sample.Effects;
 using ScreenFramework;
 using Tests.Support;
 
@@ -23,6 +24,7 @@ namespace Tests.Sample
 		MockScreenNavigator _dialogNav;
 		SampleRegistry _registry;
 		List<IScreenIdentifier> _pushed;
+		List<PushOptions> _pushedOpts;
 
 		MockView.Sample.MockGachaTopView _view;
 
@@ -34,11 +36,13 @@ namespace Tests.Sample
 			_gachaApi.ListFunc = opt => AsyncTestHelper.Return(MakeGachaList());
 
 			_pushed = new List<IScreenIdentifier>();
+			_pushedOpts = new List<PushOptions>();
 			_pageNav = new MockScreenNavigator
 			{
 				PushFunc = (id, opt, ct) =>
 				{
 					_pushed.Add(id);
+					_pushedOpts.Add(opt);
 					return AsyncTestHelper.Return<IScreenEntry>(null);
 				},
 			};
@@ -72,6 +76,15 @@ namespace Tests.Sample
 		};
 
 		GachaTopPresenter NewPresenter() => new GachaTopPresenter().WithServices(_registry);
+
+		// PushOptions.Configure が bag に書いた GachaResultEffectParam を取り出す。
+		// NavigationDataStore は internal だが InternalsVisibleTo("Tests") で参照できる。
+		static GachaResultEffectParam ReadEffectParam(PushOptions opt)
+		{
+			var store = new NavigationDataStore();
+			opt.Configure?.Invoke(store);
+			return store.TryRead<GachaResultEffectParam>(out var p) ? p : null;
+		}
 
 		// ----- Initial render -----
 
@@ -248,6 +261,73 @@ namespace Tests.Sample
 			var resultId = _pushed[0] as GachaResultScreenId;
 			Assert.IsNotNull(resultId, "GachaResultScreenId が Push される");
 			Assert.AreSame(pullResp, resultId.Result, "Pull レスポンスがそのまま渡る");
+
+			// 演出用 param が PushOptions.Configure 経由で bag に書かれている
+			var param = ReadEffectParam(_pushedOpts[0]);
+			Assert.IsNotNull(param, "GachaResultEffectParam が PushOptions.Configure 経由で書かれる");
+			Assert.AreEqual(3, param.MaxRarity, "1 個だけ引いた item の rarity がそのまま MaxRarity");
+			Assert.AreEqual(1, param.ItemCount);
+		}
+
+		[Test]
+		public async Task Pull10Button_PushesResultWithMaxRarityParam()
+		{
+			// 10 連で rarity が混在するケース。MaxRarity = 5 が拾えることを検証。
+			var pullResp = new GachaPullResponse
+			{
+				items = new[]
+				{
+					new PulledItemResponse { code = "a", name = "A", rarity = 2 },
+					new PulledItemResponse { code = "b", name = "B", rarity = 4 },
+					new PulledItemResponse { code = "c", name = "C", rarity = 5 },
+					new PulledItemResponse { code = "d", name = "D", rarity = 3 },
+					new PulledItemResponse { code = "e", name = "E", rarity = 1 },
+					new PulledItemResponse { code = "f", name = "F", rarity = 2 },
+					new PulledItemResponse { code = "g", name = "G", rarity = 1 },
+					new PulledItemResponse { code = "h", name = "H", rarity = 3 },
+					new PulledItemResponse { code = "i", name = "I", rarity = 2 },
+					new PulledItemResponse { code = "j", name = "J", rarity = 4 },
+				},
+				money = 100,
+			};
+			_gachaApi.PullFunc = (req, opt) => AsyncTestHelper.Return(pullResp);
+			_dialogNav.SetupPushAndAwait<MessageDialogId, MessageDialogResult>(_ => new MessageDialogResult(1));
+
+			var presenter = (IScreenPresenter)NewPresenter();
+			await ScreenTesting.PushAsync(presenter, _view);
+
+			_view.pull10Button.RaiseOnClicked();
+			await UniTask.WaitUntil(() => _pushed.Count >= 1);
+
+			Assert.AreEqual(1, _pushed.Count);
+			var param = ReadEffectParam(_pushedOpts[0]);
+			Assert.IsNotNull(param, "GachaResultEffectParam が PushOptions.Configure 経由で書かれる");
+			Assert.AreEqual(5, param.MaxRarity, "混在 rarity の最高値が拾われる");
+			Assert.AreEqual(10, param.ItemCount, "ItemCount は引いた件数");
+		}
+
+		[Test]
+		public async Task Pull_EmptyResponse_PushesResultWithZeroRarityParam()
+		{
+			// 念のため: items が空（あり得ないが）でも MaxRarity=0 で安全に動く。
+			var pullResp = new GachaPullResponse
+			{
+				items = System.Array.Empty<PulledItemResponse>(),
+				money = 900,
+			};
+			_gachaApi.PullFunc = (req, opt) => AsyncTestHelper.Return(pullResp);
+			_dialogNav.SetupPushAndAwait<MessageDialogId, MessageDialogResult>(_ => new MessageDialogResult(1));
+
+			var presenter = (IScreenPresenter)NewPresenter();
+			await ScreenTesting.PushAsync(presenter, _view);
+
+			_view.pull1Button.RaiseOnClicked();
+			await UniTask.WaitUntil(() => _pushed.Count >= 1);
+
+			var param = ReadEffectParam(_pushedOpts[0]);
+			Assert.IsNotNull(param);
+			Assert.AreEqual(0, param.MaxRarity);
+			Assert.AreEqual(0, param.ItemCount);
 		}
 
 		[Test]

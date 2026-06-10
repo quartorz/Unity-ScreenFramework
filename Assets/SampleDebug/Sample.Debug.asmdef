@@ -1,0 +1,21 @@
+{
+    "name": "Sample.Debug",
+    "rootNamespace": "Sample.Debug",
+    "references": [
+        "Sample",
+        "ScreenFramework",
+        "UniTask",
+        "Unity.ugui"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "IS_DEBUG"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

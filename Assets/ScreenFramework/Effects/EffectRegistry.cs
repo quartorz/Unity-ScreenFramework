@@ -31,6 +31,10 @@ namespace ScreenFramework
 
 		public IReadOnlyList<Row> Rows => _rows;
 
+		// 参照切れ行は黙って捨てると specific 行が無音でデフォルトに化けるので警告するが、
+		// Resolve は毎遷移呼ばれるため行ごとに 1 回だけログる。
+		[NonSerialized] HashSet<int> _warnedBrokenRows;
+
 		/// <summary>
 		/// from / to / ctx に合致する行のうち最 specific を返す。一致無しなら <c>HasMatch = false</c>。
 		/// </summary>
@@ -43,7 +47,6 @@ namespace ScreenFramework
 			for (int i = 0; i < _rows.Count; i++)
 			{
 				var row = _rows[i];
-				if (row.EffectPrefab == null || !row.EffectPrefab.RuntimeKeyIsValid()) continue;
 
 				// null Matcher は wildcard。非 null の場合のみ判定。
 				if (row.From != null)
@@ -59,6 +62,14 @@ namespace ScreenFramework
 					catch (Exception e) { UnityEngine.Debug.LogException(e); continue; }
 				}
 
+				// マッチした行の prefab が参照切れなら、無音で捨てず警告して skip
+				// （この行が出すはずだった演出が、より緩い行のデフォルトに化けるのを気付けるように）。
+				if (row.EffectPrefab == null || !row.EffectPrefab.RuntimeKeyIsValid())
+				{
+					WarnBrokenRowOnce(i, from, to);
+					continue;
+				}
+
 				int score = (row.From != null ? 1 : 0) + (row.To != null ? 1 : 0);
 				if (score > bestScore)
 				{
@@ -69,6 +80,15 @@ namespace ScreenFramework
 			}
 
 			return new ResolveResult(hasMatch, bestRow.EffectPrefab);
+		}
+
+		void WarnBrokenRowOnce(int rowIndex, IScreenIdentifier from, IScreenIdentifier to)
+		{
+			_warnedBrokenRows ??= new HashSet<int>();
+			if (!_warnedBrokenRows.Add(rowIndex)) return;
+			Debug.LogWarning(
+				$"[ScreenFramework] EffectRegistry '{name}' row {rowIndex} matched (from={from}, to={to}) " +
+				"but its EffectPrefab reference is missing/invalid. Skipping it; a less-specific row or no effect will be used.");
 		}
 
 		public readonly struct ResolveResult

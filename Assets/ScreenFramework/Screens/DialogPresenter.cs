@@ -27,13 +27,13 @@ namespace ScreenFramework
 		}
 
 		/// <summary>OnBeforeExit を固定化して writer 書き込みを基底に閉じ込める。</summary>
-		protected sealed override UniTask OnBeforeExit(INavigationDataWriter writer, CancellationToken ct)
+		protected sealed override UniTask OnBeforeExit(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct)
 		{
 			if (_hasResult) writer.Write(_result);
-			return OnBeforeExitCore(ct);
+			return OnBeforeExitCore(ctx, ct);
 		}
 
 		/// <summary>派生側はこちらを override する。</summary>
-		protected virtual UniTask OnBeforeExitCore(CancellationToken ct) => UniTask.CompletedTask;
+		protected virtual UniTask OnBeforeExitCore(ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
 	}
 }

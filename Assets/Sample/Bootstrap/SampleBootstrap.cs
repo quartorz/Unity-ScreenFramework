@@ -2,6 +2,7 @@ using Cysharp.Threading.Tasks;
 using LocalServer;
 using Sample.Api;
 using Sample.Api.Net;
+using Sample.Effects;
 using ScreenFramework;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -20,6 +21,9 @@ namespace Sample
 		[SerializeField] Transform _effectRoot;
 		[SerializeField] EffectRegistry _pageEffectRegistry;
 		[SerializeField] bool _startWithProfile;
+
+		// デフォルト Effect の bundle を起動時に常駐させておく簡易ウォーマ。握りっぱなしにするため field で保持。
+		readonly EffectWarmer _effectWarmer = new();
 
 		async void Start()
 		{
@@ -69,6 +73,9 @@ namespace Sample
 			};
 
 			ScreenNavigator.Initialize(registry, setup);
+
+			// デフォルト Effect だけ先に常駐させておく（全行 warm はしない）。最初の Push を待たせない fire-and-forget。
+			_effectWarmer.WarmDefaults(_pageEffectRegistry).Forget();
 
 			if (_startWithProfile)
 				// debug 用ショートカット。Title をスキップしているので UserData は空のまま。

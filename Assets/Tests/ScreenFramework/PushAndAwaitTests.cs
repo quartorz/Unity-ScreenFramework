@@ -267,7 +267,7 @@ namespace Tests.ScreenFramework
 			readonly string _text;
 			public EchoDialogPresenter(string text) { _text = text; }
 
-			protected override UniTask OnAfterLoad(INavigationDataReader reader, CancellationToken ct)
+			protected override UniTask OnAfterLoad(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct)
 			{
 				if (_text != null) SetResult(new EchoResult { Text = _text });
 				return UniTask.CompletedTask;

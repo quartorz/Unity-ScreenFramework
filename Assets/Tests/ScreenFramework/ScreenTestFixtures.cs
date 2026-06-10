@@ -93,7 +93,7 @@ namespace Tests.ScreenFramework
 		public UniTask Started => _started.Task;
 		public void Release() => _release.TrySetResult();
 
-		UniTask IScreenPresenter.OnBeforeEnter(INavigationDataReader r, CancellationToken c)
+		UniTask IScreenPresenter.OnBeforeEnter(INavigationDataReader r, ITransitionContext ctx, CancellationToken c)
 		{
 			_started.TrySetResult();
 			return _release.Task;
@@ -103,7 +103,7 @@ namespace Tests.ScreenFramework
 	/// <summary>OnBeforeLoad で非 OCE 例外を投げる presenter。</summary>
 	internal sealed class ThrowingOnBeforeLoadPresenter : IScreenPresenter
 	{
-		UniTask IScreenPresenter.OnBeforeLoad(INavigationDataReader r, CancellationToken c)
+		UniTask IScreenPresenter.OnBeforeLoad(INavigationDataReader r, ITransitionContext ctx, CancellationToken c)
 			=> throw new InvalidOperationException("test failure during OnBeforeLoad");
 	}
 
@@ -117,7 +117,7 @@ namespace Tests.ScreenFramework
 		public bool OnAfterUnloadCalled { get; private set; }
 		public TrackingPresenter(bool throwOnAfterLoad = false) { _throwOnAfterLoad = throwOnAfterLoad; }
 
-		UniTask IScreenPresenter.OnAfterLoad(IScreenViewInstance v, INavigationDataReader r, CancellationToken c)
+		UniTask IScreenPresenter.OnAfterLoad(IScreenViewInstance v, INavigationDataReader r, ITransitionContext ctx, CancellationToken c)
 		{
 			if (_throwOnAfterLoad) throw new InvalidOperationException("OnAfterLoad threw");
 			return UniTask.CompletedTask;
@@ -162,7 +162,7 @@ namespace Tests.ScreenFramework
 	{
 		readonly string _text;
 		public EchoDialogPresenter(string text) { _text = text; }
-		protected override UniTask OnAfterLoad(INavigationDataReader reader, CancellationToken ct)
+		protected override UniTask OnAfterLoad(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct)
 		{
 			if (_text != null) SetResult(new EchoResult { Text = _text });
 			return UniTask.CompletedTask;

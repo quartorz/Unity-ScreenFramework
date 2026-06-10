@@ -18,7 +18,7 @@ namespace Sample
 
 		public ProfilePresenter(string userId) { _userId = userId; }
 
-		protected override async UniTask OnAfterLoad(INavigationDataReader reader, CancellationToken ct)
+		protected override async UniTask OnAfterLoad(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct)
 		{
 			Debug.Log($"[ProfilePresenter] OnAfterLoad UserId={_userId}");
 			In.OnEditNameClicked += OnEditName;

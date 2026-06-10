@@ -15,7 +15,7 @@ namespace Sample
 
 		public GachaResultPresenter(GachaPullResponse result) { _result = result; }
 
-		protected override UniTask OnAfterLoad(INavigationDataReader reader, CancellationToken ct)
+		protected override UniTask OnAfterLoad(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct)
 		{
 			In.OnBackClicked += OnBack;
 			Out.SetTitle($"{_result.items.Length}連 結果");

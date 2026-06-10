@@ -19,7 +19,7 @@ namespace Sample.Dialogs
 			_initial = initial;
 		}
 
-		protected override UniTask OnAfterLoad(INavigationDataReader reader, CancellationToken ct)
+		protected override UniTask OnAfterLoad(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct)
 		{
 			Out.SetTitle(_title);
 			Out.SetInitialText(_initial);

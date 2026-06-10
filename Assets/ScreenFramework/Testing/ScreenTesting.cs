@@ -14,12 +14,27 @@ namespace ScreenFramework
 	/// var mockView = new MockView.Sample.MockHomeView();
 	/// mockView.SetTitleFunc = t => capturedTitle = t;
 	/// var presenter = (IScreenPresenter)new HomePresenter();
-	/// await presenter.OnAfterLoad(ScreenTesting.ViewOf(mockView), ScreenTesting.EmptyReader, default);
+	/// await ScreenTesting.PushAsync(presenter, mockView);
 	/// mockView.RaiseOnGoProfileClicked();
 	/// </code>
 	/// </summary>
 	public static class ScreenTesting
 	{
+		/// <summary>
+		/// テスト用の <see cref="ITransitionContext"/> を 1 個作る。Presenter の hook に渡され、
+		/// stage signal（<see cref="ITransitionContext.PublishStage{TStage}"/> /
+		/// <see cref="ITransitionContext.WaitForStage{TStage}"/>）の assert に使える。
+		/// 例: Push 後に <c>await ctx.WaitForStage&lt;DataReadyStage&gt;(timeout: TimeSpan.FromMilliseconds(1))</c>
+		/// が例外を出さなければ「該当 stage が publish された」ことの検証になる（publish 忘れハングの予防）。
+		/// </summary>
+		public static ITransitionContext NewTransition(
+			OperationKind kind = OperationKind.Push,
+			IScreenIdentifier from = null,
+			IScreenIdentifier to = null)
+		{
+			var store = new NavigationDataStore();
+			return new TransitionContext(kind, from, to, store, store);
+		}
 		/// <summary>
 		/// 任意のオブジェクト（MockView など）を IScreenViewInstance として包む。
 		/// SetActive / SetParent は no-op、As&lt;T&gt; は内部オブジェクトの as 変換を返す。
@@ -73,16 +88,18 @@ namespace ScreenFramework
 			IScreenPresenter presenter,
 			object view,
 			INavigationDataReader reader = null,
+			ITransitionContext context = null,
 			CancellationToken ct = default)
 		{
 			if (presenter == null) throw new ArgumentNullException(nameof(presenter));
 			if (view == null) throw new ArgumentNullException(nameof(view));
 			reader ??= EmptyNavigationDataReader.Instance;
+			context ??= NewTransition(OperationKind.Push);
 
-			await presenter.OnBeforeLoad(reader, ct);
-			await presenter.OnAfterLoad(ViewOf(view), reader, ct);
-			await presenter.OnBeforeEnter(reader, ct);
-			await presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, ct);
+			await presenter.OnBeforeLoad(reader, context, ct);
+			await presenter.OnAfterLoad(ViewOf(view), reader, context, ct);
+			await presenter.OnBeforeEnter(reader, context, ct);
+			await presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, context, ct);
 		}
 
 		/// <summary>
@@ -92,14 +109,16 @@ namespace ScreenFramework
 		/// </summary>
 		public static async UniTask<INavigationDataReader> PopAsync(
 			IScreenPresenter presenter,
+			ITransitionContext context = null,
 			CancellationToken ct = default)
 		{
 			if (presenter == null) throw new ArgumentNullException(nameof(presenter));
 			var store = new NavigationDataStore();
 			var writer = (INavigationDataWriter)store;
+			context ??= NewTransition(OperationKind.Pop);
 
-			await presenter.OnBeforeExit(writer, ct);
-			await presenter.OnAfterExit(writer, ct);
+			await presenter.OnBeforeExit(writer, context, ct);
+			await presenter.OnAfterExit(writer, context, ct);
 			await presenter.OnAfterUnload(writer, ct);
 			return store;
 		}

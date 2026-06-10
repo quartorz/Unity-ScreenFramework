@@ -23,7 +23,7 @@ namespace Sample.Dialogs
 			_showCloseButton = showCloseButton;
 		}
 
-		protected override UniTask OnAfterLoad(INavigationDataReader reader, CancellationToken ct)
+		protected override UniTask OnAfterLoad(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct)
 		{
 			Out.SetTitle(_title);
 			Out.SetMessage(_message);

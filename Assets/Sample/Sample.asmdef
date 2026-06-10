@@ -5,6 +5,8 @@
         "ScreenFramework",
         "UniTask",
         "Unity.ugui",
+        "Unity.Addressables",
+        "Unity.ResourceManager",
         "LocalServer"
     ],
     "includePlatforms": [],

@@ -8,7 +8,7 @@ namespace Sample
 	public sealed class HomePresenter
 		: SamplePresenter<MockView.Sample.IHomeViewInput, MockView.Sample.IHomeViewOutput>
 	{
-		protected override UniTask OnAfterLoad(INavigationDataReader reader, CancellationToken ct)
+		protected override UniTask OnAfterLoad(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct)
 		{
 			Out.SetTitle("Home Screen");
 			In.goProfile.OnClicked += OnGoProfile;

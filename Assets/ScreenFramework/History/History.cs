@@ -15,6 +15,11 @@ namespace ScreenFramework
 		/// <c>PushAndAwait</c> の待機者にはキャンセルが通知される）。
 		/// 挿入した行は dormant（インスタンスなし）として入り、Pop で到達した時にロードされる。
 		/// 履歴が空のときは編集は適用されない。
+		/// <para>
+		/// <b>遷移中の呼び出し</b>: 遷移実行中（<see cref="IScreenNavigator.IsTransitioning"/> が true）に呼ぶと、
+		/// その遷移と連鎖する preempt / queue が全て完了した後にまとめて適用される。
+		/// 遷移の途中で履歴の並走リストを書き換えると、進行中の操作が掴んでいる index が無効化されるため。
+		/// </para>
 		/// </summary>
 		void Edit(Action<IScreenHistoryEditor> action);
 	}

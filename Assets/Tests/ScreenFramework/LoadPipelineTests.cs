@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Threading.Tasks;
+using Cysharp.Threading.Tasks;
 using NUnit.Framework;
 using ScreenFramework;
 
@@ -29,7 +30,12 @@ namespace Tests.ScreenFramework
 		}
 
 		[TearDown]
-		public void TearDown() => DestroyContainer(_pageContainer);
+		public void TearDown()
+		{
+			// 再 Initialize 例外ガード（既初期化なら throw）があるので、各テスト後に静的参照を畳む。
+			ScreenNavigator.Shutdown().Forget();
+			DestroyContainer(_pageContainer);
+		}
 
 		[Test]
 		public async Task NonOceFailure_DuringLoad_StillUnloadsHandle()

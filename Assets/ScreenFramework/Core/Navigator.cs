@@ -13,6 +13,13 @@ namespace ScreenFramework
 	/// <see cref="ScreenNavigatorRedirectExtensions.Redirect(Cysharp.Threading.Tasks.UniTask)"/>
 	/// （＝意図を明示した <c>.Forget()</c>）で発行すること（現在の遷移が完了した後に実行される）。
 	/// 別レイヤーへの遷移は await して構わない。
+	/// <para>
+	/// <b>静的参照とシーン寿命</b>: <see cref="ScreenNavigator"/> の静的参照は明示的に
+	/// <see cref="ScreenNavigator.Shutdown"/> するまで生き続ける。Navigator が握る画面インスタンスや
+	/// <see cref="ScreenLayerConfig.Container"/> はシーン上の GameObject なので、<c>Shutdown</c> せずに
+	/// シーンを破棄すると、Navigator が destroy 済みの View を抱えたまま以後の操作が壊れる。
+	/// シーン遷移・再初期化の前に必ず <c>await ScreenNavigator.Shutdown()</c> すること。
+	/// </para>
 	/// </remarks>
 	public interface IScreenNavigator
 	{
@@ -53,9 +60,18 @@ namespace ScreenFramework
 		/// なければ null。複数あれば最も上にあるものを返す。
 		/// </summary>
 		IScreenEntry FindEntry<TPresenter>() where TPresenter : class, IScreenPresenter;
-		UniTask Replace(IScreenIdentifier id, ReplaceOptions opt = default, CancellationToken ct = default);
-		UniTask Change(IScreenIdentifier id, ChangeOptions opt = default, CancellationToken ct = default);
-		UniTask Reset(IScreenIdentifier id, ResetOptions opt = default, CancellationToken ct = default);
+
+		/// <summary>現在の最上段を新画面に差し替える。完了後、新画面のエントリを返す（<see cref="Push"/> と対称）。</summary>
+		UniTask<IScreenEntry> Replace(IScreenIdentifier id, ReplaceOptions opt = default, CancellationToken ct = default);
+		/// <summary>
+		/// 下スタックを破棄しつつ最上段を新画面へ差し替える。完了後、新画面のエントリを返す。
+		/// 最上段だけが Effect 付きの cross-fade で差し替わり、下スタックは演出なしで黙って破棄される。
+		/// Stack モード（複数画面を同時表示するレイヤー）で使うと、見えている下積みも無演出で消えるため、
+		/// 主に単一画面を積む Page レイヤー向け。
+		/// </summary>
+		UniTask<IScreenEntry> Change(IScreenIdentifier id, ChangeOptions opt = default, CancellationToken ct = default);
+		/// <summary>全画面を破棄し新画面 1 枚にする。完了後、新画面のエントリを返す。</summary>
+		UniTask<IScreenEntry> Reset(IScreenIdentifier id, ResetOptions opt = default, CancellationToken ct = default);
 		UniTask PopTo(Func<IScreenIdentifier, bool> predicate, PopToOptions opt = default, CancellationToken ct = default);
 
 		UniTask DismissAll(CancellationToken ct = default);

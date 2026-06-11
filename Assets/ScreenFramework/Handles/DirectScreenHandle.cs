@@ -23,8 +23,10 @@ namespace ScreenFramework
 		public UniTask<IScreenViewInstance> Load(IProgress<float> progress, CancellationToken ct)
 		{
 			_instance = Object.Instantiate(_prefab);
-			// Awake をトリガーするため一度 active にする（Navigator 側で非表示に戻す）
+			// Awake をトリガーするため一度 active にし、その直後に隠す。
+			// Navigator が見せるまでの間 presenter 未配線で Update 等が回り続けないようにする。
 			if (!_instance.activeSelf) _instance.SetActive(true);
+			_instance.SetActive(false);
 			return UniTask.FromResult<IScreenViewInstance>(new PrefabScreenViewInstance(_instance));
 		}
 

@@ -13,5 +13,6 @@ namespace ScreenFramework
 		Reset,
 		PopTo,
 		Close,
+		DismissAll,
 	}
 }

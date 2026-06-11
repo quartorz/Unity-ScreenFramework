@@ -8,8 +8,22 @@ namespace ScreenFramework
 		/// 遷移データ bag への書き込みを行うコールバック。宛先 Presenter / Effect が
 		/// 同じ bag を共有して読む（<see cref="INavigationDataReader"/> 経由）。
 		/// 複数の型を続けて Write してよい。
+		/// <para>
+		/// <b>注意</b>: ここで渡すのは「この 1 回の遷移限りの一時的な受け渡し」。Pop で下画面が
+		/// <c>DestroyOnCover</c>（既定）で破棄された後に再表示される場合、復元ロードは空の bag で行われ
+		/// この Configure の内容は再現されない。画面の再生成に耐えるべきパラメータは
+		/// <see cref="IScreenIdentifier"/>（record）のフィールドに持たせること。
+		/// </para>
 		/// </summary>
 		public Action<INavigationDataWriter> Configure { get; init; }
+
+		/// <summary>
+		/// <b>この遷移で入る新画面自身</b>のキャッシュ方針を上書きする（null なら Identifier の
+		/// <see cref="IScreenIdentifier.CachePolicy"/>、それも null ならレイヤー既定）。
+		/// 後でこの画面が別画面に覆われたとき、破棄する（<see cref="ScreenCacheMode.DestroyOnCover"/>）か
+		/// 非表示で保持する（<see cref="ScreenCacheMode.KeepOnCover"/>）かを決める。
+		/// 覆う側の遷移ではなく、覆われる画面自身を Push したときの指定が効く。
+		/// </summary>
 		public ScreenCacheMode? CachePolicyOverride { get; init; }
 		public bool? ModalOverride { get; init; }
 		public InterruptPriority InterruptPriority { get; init; }
@@ -61,11 +75,20 @@ namespace ScreenFramework
 		public IScreenIdentifier To { get; }
 		public ScreenTransitionKind Kind { get; }
 
-		public ScreenTransitionEvent(IScreenIdentifier from, IScreenIdentifier to, ScreenTransitionKind kind)
+		/// <summary>
+		/// この遷移が成功したか。<see cref="IScreenNavigator.OnTransitionStart"/> では常に true。
+		/// <see cref="IScreenNavigator.OnTransitionEnd"/> では、ロールバック可能ゾーンでの失敗
+		/// （ロード例外）や preempt によるキャンセルで遷移が完走しなかった場合に false になる。
+		/// 完走必須ゾーンの hook 例外は遷移本筋を止めない（吸収される）ので Succeeded には影響しない。
+		/// </summary>
+		public bool Succeeded { get; }
+
+		public ScreenTransitionEvent(IScreenIdentifier from, IScreenIdentifier to, ScreenTransitionKind kind, bool succeeded = true)
 		{
 			From = from;
 			To = to;
 			Kind = kind;
+			Succeeded = succeeded;
 		}
 	}
 
@@ -77,5 +100,9 @@ namespace ScreenFramework
 		Change,
 		Reset,
 		PopTo,
+		/// <summary>参照指定で特定エントリを閉じる（<see cref="IScreenNavigator.Close"/>）。最上段でも中間でも Close。</summary>
+		Close,
+		/// <summary>全画面を畳む（<see cref="IScreenNavigator.DismissAll"/>）。</summary>
+		DismissAll,
 	}
 }

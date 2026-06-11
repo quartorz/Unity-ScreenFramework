@@ -9,11 +9,13 @@ namespace ScreenFramework
 	/// 該当タイミングで自動的に await する。
 	///
 	/// タイミング:
-	///   Enter: SetActive(true) → OnBeforeEnter → WhenAll(transition.End, PlayEnter) → OnAfterEnter
+	///   Enter: SetActive(true) → OnBeforeEnter → PlayEnter → OnAfterEnter
 	///   Exit : OnBeforeExit → PlayExit → SetActive(false) → OnAfterExit
 	///
 	/// Pop の場合、下から戻る画面に対しても Enter が走る（Cover で隠れていた場合のみ。
 	/// Stack で常時 visible だった場合は Enter 不要なので呼ばれない）。
+	/// 既に非表示で保持されていた画面（KeepOnCover で suspend 中）の退場では、見えていないので
+	/// PlayExit は呼ばれない（DismissAll / Reset 等で隠れたまま破棄される場合）。
 	///
 	/// View が未実装でも no-op として扱う（Navigator は null 安全に呼ぶ）。
 	/// </summary>

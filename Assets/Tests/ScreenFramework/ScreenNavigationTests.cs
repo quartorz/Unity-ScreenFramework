@@ -58,8 +58,9 @@ namespace Tests.ScreenFramework
 		[TearDown]
 		public void TearDown()
 		{
-			// 各テストの SetUp で Initialize() が静的状態を上書きするのでリセットは不要。
-			// ここでは Unity GameObject の片付けだけ。
+			// 再 Initialize 例外ガード（既初期化なら throw）があるので、各テスト後に静的参照を畳んでから
+			// Unity GameObject を片付ける。
+			ScreenNavigator.Shutdown().Forget();
 			DestroyContainer(_pageContainer);
 			DestroyContainer(_dialogContainer);
 			DestroyContainer(_systemDialogContainer);

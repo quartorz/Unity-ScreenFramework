@@ -35,8 +35,9 @@ namespace Tests.ScreenFramework
 		[TearDown]
 		public void TearDown()
 		{
+			// 再 Initialize 例外ガード（既初期化なら throw）があるので、各テスト後に静的参照を畳む。
+			ScreenNavigator.Shutdown().Forget();
 			DestroyContainer(_pageContainer);
-			// 他は親ごと残るが SetUp で上書きされる
 		}
 
 		[UnityTest]

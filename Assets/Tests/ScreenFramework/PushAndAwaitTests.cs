@@ -35,6 +35,8 @@ namespace Tests.ScreenFramework
 		[TearDown]
 		public void TearDown()
 		{
+			// 再 Initialize 例外ガード（既初期化なら throw）があるので、各テスト後に静的参照を畳む。
+			ScreenNavigator.Shutdown().Forget();
 			if (_pageContainer is MonoBehaviour mb && mb != null)
 				Object.DestroyImmediate(mb.gameObject);
 		}
@@ -112,6 +114,8 @@ namespace Tests.ScreenFramework
 		[UnityTest]
 		public IEnumerator ConcurrentAwaits_DontMix() => UniTask.ToCoroutine(async () =>
 		{
+			await ScreenNavigator.Shutdown();
+			
 			// 同じ型 (EchoResult) を返す dialog を Stack mode で並行に開いて区別できることを確認
 			// この test では同じ Page layer を Stack mode に切り替えて 2 枚積む
 			Object.DestroyImmediate(((MonoBehaviour)_pageContainer).gameObject);
@@ -167,6 +171,8 @@ namespace Tests.ScreenFramework
 		[Test]
 		public async Task DialogFromDialog_KeepOnCover_AwaiterSurvivesUntilOwnPop()
 		{
+			await ScreenNavigator.Shutdown();
+
 			// Dialog を Cover + KeepOnCover にすると「ダイアログからダイアログ」が成立する。
 			// 下のダイアログは Suspend され、上のダイアログを Pop すると下の awaiter は
 			// 自分が Pop されるときに正規 resolve される。

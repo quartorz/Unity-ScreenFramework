@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using Cysharp.Threading.Tasks;
 using NUnit.Framework;
 using ScreenFramework;
 
@@ -89,6 +90,36 @@ namespace Tests.ScreenFramework
 			Assert.AreEqual(new MarkerScreenId("middle"), _nav.Current);
 			await _nav.Pop();
 			Assert.AreEqual(new MarkerScreenId("replaced"), _nav.Current);
+		}
+
+		[Test]
+		public async Task Edit_DuringTransition_IsDeferredUntilCompletion()
+		{
+			var idA = new MarkerScreenId("A");
+			var idB = new MarkerScreenId("B");
+			await _nav.Push(idA);
+			await _nav.Push(idB);
+
+			// OnBeforeEnter でブロックする画面を Push して「遷移中」を作る。
+			// bookkeeping は Enter hook の前に済むので、この時点で G は既に履歴に積まれている。
+			var gate = new GatedPresenter();
+			var idG = new ControllableScreenId(new InstantHandle(), () => gate);
+			var pushG = _nav.Push(idG); // await しない
+			await gate.Started;
+
+			Assert.IsTrue(_nav.IsTransitioning);
+			Assert.AreEqual(3, _nav.History.Count);
+
+			// 遷移中の Edit は index 競合を避けるため遅延される。
+			_nav.History.Edit(e => e.RemoveAt(0));
+			Assert.AreEqual(3, _nav.History.Count, "遷移中の Edit は即時適用されない");
+
+			gate.Release();
+			await pushG;
+
+			// チェーン完了後にまとめて適用される。
+			Assert.AreEqual(2, _nav.History.Count, "遷移完了後に Edit が適用される");
+			Assert.AreEqual(idB, _nav.History[0]);
 		}
 	}
 }

@@ -34,11 +34,26 @@ namespace ScreenFramework
 				throw new InvalidOperationException($"Failed to load Addressable: {_key}");
 			}
 			_instance = _handle.Result;
+			// Instantiate 直後は active で scene root に出ているため、Navigator が SetParent/SetActive で
+			// 見せるまでの間 presenter 未配線のまま Awake/OnEnable/Update が走らないよう即座に隠す。
+			if (_instance != null && _instance.activeSelf) _instance.SetActive(false);
 			return new PrefabScreenViewInstance(_instance);
 		}
 
-		public UniTask Unload(CancellationToken ct)
+		public async UniTask Unload(CancellationToken ct)
 		{
+			// ロード中（preempt 等で polling を抜けた直後）に Unload されると _handle がまだ未完了のことがある。
+			// 未完了ハンドルへの Release はバージョン依存で挙動が不定（インスタンスが取り残されうる）なので、
+			// 一度決着を待ってから解放する。クリーンアップなので ct では中断しない。
+			if (_handle.IsValid() && !_handle.IsDone)
+			{
+				while (!_handle.IsDone) await UniTask.Yield(PlayerLoopTiming.Update, CancellationToken.None);
+			}
+			// 巻き戻し中に load が完了していたら、取り残さないようインスタンスを掴む。
+			if (_instance == null && _handle.IsValid() && _handle.Status == AsyncOperationStatus.Succeeded)
+			{
+				_instance = _handle.Result;
+			}
 			if (_instance != null)
 			{
 				Addressables.ReleaseInstance(_instance);
@@ -48,7 +63,6 @@ namespace ScreenFramework
 			{
 				Addressables.Release(_handle);
 			}
-			return UniTask.CompletedTask;
 		}
 	}
 

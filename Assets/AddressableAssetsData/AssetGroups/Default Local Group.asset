@@ -14,7 +14,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: Unity.Addressables.Editor::UnityEditor.AddressableAssets.Settings.AddressableAssetGroup
   m_GroupName: Default Local Group
   m_GUID: 43f0aee0d4745ae46a6abf61b0310343
-  m_SerializeEntries: []
+  m_SerializeEntries:
+  - m_GUID: 7e1499c8e9ff64c0d9d67b18f2d9ed15
+    m_Address: Assets/Sample/Effects/Prefabs/FadeEffect.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: 7cccd7cde193d0a4693c33d73daa8cd1, type: 2}
   m_SchemaSet:

@@ -50,7 +50,8 @@ namespace Tests.Sample
 			_pageNav.ChangeFunc = (id, opt, ct) =>
 			{
 				_changedIds.Add(id);
-				return AsyncTestHelper.Done();
+				// Change は IScreenEntry を返すようになった（戻り値は本テストでは未使用）。
+				return AsyncTestHelper.Return<IScreenEntry>(null);
 			};
 
 			ScreenNavigator.Override(

@@ -86,6 +86,9 @@ namespace ScreenFramework
 			}
 			catch (OperationCanceledException) when (ct.IsCancellationRequested)
 			{
+				// preempt 等で polling を抜けた直後は InstantiateAsync handle が未完了のことがある。
+				// 未完了ハンドルを Release するとインスタンスが取り残されうるので、決着を待ってから破棄する。
+				await SettleHandleAsync();
 				DestroyNow();
 				throw;
 			}
@@ -161,6 +164,21 @@ namespace ScreenFramework
 			Debug.LogWarning($"[ScreenFramework] {reason}. Effect disabled, transition continues.");
 			DestroyNow();
 			_disabled = true;
+		}
+
+		/// <summary>
+		/// 巻き戻し中に InstantiateAsync handle が未完了なら決着を待つ。クリーンアップなので ct では中断しない。
+		/// 待った後に instance が出来ていれば DestroyNow が ReleaseInstance で正しく回収できる。
+		/// </summary>
+		async UniTask SettleHandleAsync()
+		{
+			if (!_ownsHandle || !_handle.IsValid()) return;
+			while (!_handle.IsDone) await UniTask.Yield(PlayerLoopTiming.Update, CancellationToken.None);
+			if (_instanceGo == null && _handle.Status == AsyncOperationStatus.Succeeded)
+			{
+				_instanceGo = _handle.Result;
+				if (_instanceGo != null) _instance = _instanceGo.GetComponent<ScreenEffect>();
+			}
 		}
 
 		void DestroyNow()

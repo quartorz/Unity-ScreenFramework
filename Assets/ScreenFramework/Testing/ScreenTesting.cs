@@ -81,7 +81,7 @@ namespace ScreenFramework
 		/// <summary>
 		/// Push 時のライフサイクル一式を実機 Navigator と同順で呼ぶ。
 		/// OnInitialize → OnBeforeLoad → OnAfterLoad → OnBeforeEnter → OnAfterEnter。
-		/// <paramref name="reader"/> は OnBeforeLoad / OnBeforeEnter に渡される push payload 相当。
+		/// <paramref name="reader"/> は OnBeforeLoad / OnBeforeEnter / OnAfterEnter に渡される push payload 相当。
 		/// 任意のフェーズで例外が出れば呼び出し側に伝播する（実機の挙動と同じ）。
 		/// </summary>
 		public static async UniTask PushAsync(
@@ -100,7 +100,7 @@ namespace ScreenFramework
 			await presenter.OnBeforeLoad(reader, context, ct);
 			await presenter.OnAfterLoad(ViewOf(view), reader, context, ct);
 			await presenter.OnBeforeEnter(reader, context, ct);
-			await presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, context, ct);
+			await presenter.OnAfterEnter(reader, context, ct);
 		}
 
 		/// <summary>

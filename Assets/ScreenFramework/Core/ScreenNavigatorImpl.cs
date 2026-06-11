@@ -21,6 +21,9 @@ namespace ScreenFramework
 		readonly List<CancellationTokenSource> _pendingCtses = new();
 		UniTaskCompletionSource _currentDoneSignal; // null なら走っていない
 
+		// 遷移中に呼ばれた History.Edit は index 競合を避けるため遅延し、チェーン完了時にまとめて適用する。
+		readonly List<Action<IScreenHistoryEditor>> _deferredEdits = new();
+
 		public IScreenHistory History => _history;
 		public IScreenIdentifier Current => _history.Current;
 		public bool IsTransitioning { get; private set; }
@@ -32,6 +35,10 @@ namespace ScreenFramework
 		{
 			_services = services ?? throw new ArgumentNullException(nameof(services));
 			_config = config ?? throw new ArgumentNullException(nameof(config));
+			// Container.Root は画面の親付け先として全操作で参照する。null だと画面が無言でシーン直下に
+			// 親付けされ気付きにくいので、ここで fail-fast する。
+			if (_config.Container == null)
+				throw new ArgumentException("ScreenLayerConfig.Container is required.", nameof(config));
 			// History.Edit は _live と同期して編集する必要がある（履歴だけ書き換わると
 			// 平行リストの不変条件が壊れ、以後の Pop が別画面を復元する）ため Navigator 側で実装する。
 			_history.EditOverride = EditHistorySynced;
@@ -49,8 +56,9 @@ namespace ScreenFramework
 			{
 				var from = Current;
 				FireStart(from, id, ScreenTransitionKind.Push);
-				try { created = await PushCore(OperationKind.Push, id, opt, resultSource: null, myCt); }
-				finally { FireEnd(from, Current, ScreenTransitionKind.Push); }
+				var ok = false;
+				try { created = await PushCore(OperationKind.Push, id, opt, resultSource: null, myCt); ok = true; }
+				finally { FireEnd(from, Current, ScreenTransitionKind.Push, ok); }
 			});
 			return created != null ? new ScreenEntry(this, created.Presenter) : null;
 		}
@@ -77,8 +85,9 @@ namespace ScreenFramework
 			{
 				var from = Current;
 				FireStart(from, id, ScreenTransitionKind.Push);
-				try { await PushCore(OperationKind.Push, id, opt, resultSource: tcs, myCt); }
-				finally { FireEnd(from, Current, ScreenTransitionKind.Push); }
+				var ok = false;
+				try { await PushCore(OperationKind.Push, id, opt, resultSource: tcs, myCt); ok = true; }
+				finally { FireEnd(from, Current, ScreenTransitionKind.Push, ok); }
 			});
 
 			var reader = await tcs.Task;
@@ -93,8 +102,9 @@ namespace ScreenFramework
 				var from = Current;
 				var to = _history.Count >= 2 ? _history[_history.Count - 2] : null;
 				FireStart(from, to, ScreenTransitionKind.Pop);
-				try { await PopCore(OperationKind.Pop, opt.Configure, myCt); }
-				finally { FireEnd(from, Current, ScreenTransitionKind.Pop); }
+				var ok = false;
+				try { await PopCore(OperationKind.Pop, opt.Configure, myCt); ok = true; }
+				finally { FireEnd(from, Current, ScreenTransitionKind.Pop, ok); }
 			});
 		}
 
@@ -115,13 +125,20 @@ namespace ScreenFramework
 				{
 					var from = Current;
 					var to = _history.Count >= 2 ? _history[_history.Count - 2] : null;
-					FireStart(from, to, ScreenTransitionKind.Pop);
-					try { await CloseTopAsync(opt.Configure, myCt); }
-					finally { FireEnd(from, Current, ScreenTransitionKind.Pop); }
+					FireStart(from, to, ScreenTransitionKind.Close);
+					var ok = false;
+					try { await CloseTopAsync(opt.Configure, myCt); ok = true; }
+					finally { FireEnd(from, Current, ScreenTransitionKind.Close, ok); }
 				}
 				else
 				{
-					await CloseMiddleAsync(idx, myCt);
+					// 中間 Close: 最上段は変わらない（revealed なし）。従来は無発火だったが、
+					// 観測側が「閉じられた」ことを取りこぼさないよう Close で 1 発通知する。
+					var closed = _history[idx];
+					FireStart(closed, to: null, ScreenTransitionKind.Close);
+					var ok = false;
+					try { await CloseMiddleAsync(idx, myCt); ok = true; }
+					finally { FireEnd(closed, to: null, ScreenTransitionKind.Close, ok); }
 				}
 			});
 		}
@@ -135,40 +152,49 @@ namespace ScreenFramework
 			return false;
 		}
 
-		public UniTask Replace(IScreenIdentifier id, ReplaceOptions opt = default, CancellationToken ct = default)
+		public async UniTask<IScreenEntry> Replace(IScreenIdentifier id, ReplaceOptions opt = default, CancellationToken ct = default)
 		{
 			if (id == null) throw new ArgumentNullException(nameof(id));
-			return Run(opt.InterruptPriority, ct, async myCt =>
+			LiveEntry created = null;
+			await Run(opt.InterruptPriority, ct, async myCt =>
 			{
 				var from = Current;
 				FireStart(from, id, ScreenTransitionKind.Replace);
-				try { await ReplaceCore(OperationKind.Replace, id, opt, myCt); }
-				finally { FireEnd(from, Current, ScreenTransitionKind.Replace); }
+				var ok = false;
+				try { created = await ReplaceCore(OperationKind.Replace, id, opt, myCt); ok = true; }
+				finally { FireEnd(from, Current, ScreenTransitionKind.Replace, ok); }
 			});
+			return created != null ? new ScreenEntry(this, created.Presenter) : null;
 		}
 
-		public UniTask Change(IScreenIdentifier id, ChangeOptions opt = default, CancellationToken ct = default)
+		public async UniTask<IScreenEntry> Change(IScreenIdentifier id, ChangeOptions opt = default, CancellationToken ct = default)
 		{
 			if (id == null) throw new ArgumentNullException(nameof(id));
-			return Run(opt.InterruptPriority, ct, async myCt =>
+			LiveEntry created = null;
+			await Run(opt.InterruptPriority, ct, async myCt =>
 			{
 				var from = Current;
 				FireStart(from, id, ScreenTransitionKind.Change);
-				try { await ChangeCore(id, opt, myCt); }
-				finally { FireEnd(from, Current, ScreenTransitionKind.Change); }
+				var ok = false;
+				try { created = await ChangeCore(id, opt, myCt); ok = true; }
+				finally { FireEnd(from, Current, ScreenTransitionKind.Change, ok); }
 			});
+			return created != null ? new ScreenEntry(this, created.Presenter) : null;
 		}
 
-		public UniTask Reset(IScreenIdentifier id, ResetOptions opt = default, CancellationToken ct = default)
+		public async UniTask<IScreenEntry> Reset(IScreenIdentifier id, ResetOptions opt = default, CancellationToken ct = default)
 		{
 			if (id == null) throw new ArgumentNullException(nameof(id));
-			return Run(opt.InterruptPriority, ct, async myCt =>
+			LiveEntry created = null;
+			await Run(opt.InterruptPriority, ct, async myCt =>
 			{
 				var from = Current;
 				FireStart(from, id, ScreenTransitionKind.Reset);
-				try { await ResetCore(id, opt, myCt); }
-				finally { FireEnd(from, Current, ScreenTransitionKind.Reset); }
+				var ok = false;
+				try { created = await ResetCore(id, opt, myCt); ok = true; }
+				finally { FireEnd(from, Current, ScreenTransitionKind.Reset, ok); }
 			});
+			return created != null ? new ScreenEntry(this, created.Presenter) : null;
 		}
 
 		public UniTask PopTo(Func<IScreenIdentifier, bool> predicate, PopToOptions opt = default, CancellationToken ct = default)
@@ -186,6 +212,7 @@ namespace ScreenFramework
 				var from = Current;
 				var to = _history[targetIndex];
 				FireStart(from, to, ScreenTransitionKind.PopTo);
+				var ok = false;
 				try
 				{
 					for (var i = _history.Count - 2; i > targetIndex; i--)
@@ -200,8 +227,9 @@ namespace ScreenFramework
 					}
 
 					await PopCore(OperationKind.PopTo, opt.Configure, myCt);
+					ok = true;
 				}
-				finally { FireEnd(from, Current, ScreenTransitionKind.PopTo); }
+				finally { FireEnd(from, Current, ScreenTransitionKind.PopTo, ok); }
 			});
 		}
 
@@ -209,18 +237,23 @@ namespace ScreenFramework
 		{
 			return Run(InterruptPriority.Preempt, ct, async myCt =>
 			{
-				await DismissAllInternal(myCt);
+				if (_history.Count == 0) return;
+				var from = Current;
+				FireStart(from, to: null, ScreenTransitionKind.DismissAll);
+				var ok = false;
+				try { await DismissAllInternal(OperationKind.DismissAll, myCt); ok = true; }
+				finally { FireEnd(Current, to: null, ScreenTransitionKind.DismissAll, ok); }
 			});
 		}
 
-		async UniTask DismissAllInternal(CancellationToken ct)
+		async UniTask DismissAllInternal(OperationKind kind, CancellationToken ct)
 		{
 			while (_history.Count > 0)
 			{
 				var top = _live[_live.Count - 1];
 				if (top != null)
 				{
-					await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: true, effect: null, BareContext(OperationKind.Reset, _history[_history.Count - 1]), CancellationToken.None);
+					await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: true, effect: null, BareContext(kind, _history[_history.Count - 1]), CancellationToken.None);
 					DestroyBlockerIfAny(top);
 				}
 				_live.RemoveAt(_live.Count - 1);
@@ -278,8 +311,24 @@ namespace ScreenFramework
 				{
 					IsTransitioning = false;
 					_currentDoneSignal = null;
+					// チェーンが空になった = 遷移中に遅延された History.Edit を安全に適用できる。
+					DrainDeferredEdits();
 				}
 				myCts.Dispose();
+			}
+		}
+
+		/// <summary>遷移中に遅延された History.Edit を適用順に処理する。各編集の例外は遷移本筋に影響させない。</summary>
+		void DrainDeferredEdits()
+		{
+			if (_deferredEdits.Count == 0) return;
+			// 適用中に新たな Edit が積まれても取りこぼさないよう、スナップショットして消化する。
+			while (_deferredEdits.Count > 0)
+			{
+				var action = _deferredEdits[0];
+				_deferredEdits.RemoveAt(0);
+				try { ApplyHistoryEdit(action); }
+				catch (Exception e) { Debug.LogException(e); }
 			}
 		}
 
@@ -351,7 +400,7 @@ namespace ScreenFramework
 				try
 				{
 					effect = await ResolveAndInstantiateEffectAsync(ctx, ct);
-					entry = await CreateAndPreloadAsync(id, pushStore, ctx, effect, EffectZone.Rollback, ct);
+					entry = await CreateAndPreloadAsync(id, pushStore, ctx, effect, EffectZone.Rollback, opt.CachePolicyOverride, ct);
 					if (ct.IsCancellationRequested)
 					{
 						// hook 側が ct を観測せず完走した場合でも、ロード済み entry を漏らさず巻き戻す
@@ -375,10 +424,15 @@ namespace ScreenFramework
 					if (_config.StackMode == StackMode.Cover)
 					{
 						var prev = _live[_live.Count - 1];
-						var cache = ResolveCacheMode(_history[_history.Count - 1], opt.CachePolicyOverride);
-						await ExitPreviousAsync(prev, cache, isPop: false, effect, ctx, safeCt);
-						if (cache == ScreenCacheMode.DestroyOnCover)
-							_live[_live.Count - 1] = null;
+						// 覆われる画面の生死は「その画面自身が Push されたときに確定したキャッシュ方針」で決める
+						// （覆う側の CachePolicyOverride ではない）。
+						var cache = prev != null ? prev.ResolvedCacheMode : ScreenCacheMode.DestroyOnCover;
+						if (prev != null)
+						{
+							await ExitPreviousAsync(prev, cache, isPop: false, effect, ctx, safeCt);
+							if (cache == ScreenCacheMode.DestroyOnCover)
+								_live[_live.Count - 1] = null;
+						}
 					}
 					else
 					{
@@ -400,15 +454,17 @@ namespace ScreenFramework
 					}
 				}
 
+				// blocker の要否は「下に画面があるか」で決まるので、新 entry を _live に積む前に評価する。
 				if (ShouldCreateBlocker(entry.Modal) && _live.Count > 0)
 				{
 					entry.ModalBlocker = CreateModalBlocker(_config.Container.Root);
 				}
 
-				await EnterNewTopAsync(entry, effect, ctx, safeCt);
-
+				// bookkeeping は Enter hook より前に済ませる（Replace/Change と統一）。
+				// これで OnBeforeEnter/OnAfterEnter から見た Current / FindEntry が常に「自分が最上段」になる。
 				_history.Push(id);
 				_live.Add(entry);
+				await EnterNewTopAsync(entry, effect, ctx, safeCt);
 				return entry;
 			}
 			finally
@@ -446,7 +502,7 @@ namespace ScreenFramework
 				{
 					var belowId = _history[belowIndex];
 					// 復元 load は Exit より後 = 完走必須ゾーン。Load hook も Commit で呼ぶ。
-					below = await CreateAndPreloadAsync(belowId, pushStore: new NavigationDataStore(), ctx, effect, EffectZone.Commit, safeCt);
+					below = await CreateAndPreloadAsync(belowId, pushStore: new NavigationDataStore(), ctx, effect, EffectZone.Commit, cacheOverride: null, safeCt);
 					below.View.SetParent(_config.Container.Root);
 					below.View.SetActive(true);
 					_live[belowIndex] = below;
@@ -468,9 +524,9 @@ namespace ScreenFramework
 				await WhenBoth(
 					GuardedHook(() => below.Presenter.OnBeforeEnter(returnStore, ctx, safeCt)),
 					effect?.OnBeforeEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
-				await RunEnterAsync(below, effect, safeCt, playViewEnter: belowReappears);
+				await RunEnterAsync(below, safeCt, playViewEnter: belowReappears);
 				await WhenBoth(
-					GuardedHook(() => below.Presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, ctx, safeCt)),
+					GuardedHook(() => below.Presenter.OnAfterEnter(returnStore, ctx, safeCt)),
 					effect?.OnAfterEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
 			}
 			finally
@@ -522,7 +578,7 @@ namespace ScreenFramework
 					{
 						var belowId = _history[belowIndex];
 						// 復元 load は Exit より後 = 完走必須ゾーン。
-						below = await CreateAndPreloadAsync(belowId, pushStore: new NavigationDataStore(), ctx, effect, EffectZone.Commit, safeCt);
+						below = await CreateAndPreloadAsync(belowId, pushStore: new NavigationDataStore(), ctx, effect, EffectZone.Commit, cacheOverride: null, safeCt);
 						below.View.SetParent(_config.Container.Root);
 						below.View.SetActive(true);
 						_live[belowIndex] = below;
@@ -544,9 +600,9 @@ namespace ScreenFramework
 					await WhenBoth(
 						GuardedHook(() => below.Presenter.OnBeforeEnter(returnStore, ctx, safeCt)),
 						effect?.OnBeforeEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
-					await RunEnterAsync(below, effect, safeCt, playViewEnter: belowReappears);
+					await RunEnterAsync(below, safeCt, playViewEnter: belowReappears);
 					await WhenBoth(
-						GuardedHook(() => below.Presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, ctx, safeCt)),
+						GuardedHook(() => below.Presenter.OnAfterEnter(returnStore, ctx, safeCt)),
 						effect?.OnAfterEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
 				}
 				else if (effect != null)
@@ -562,17 +618,16 @@ namespace ScreenFramework
 			}
 		}
 
-		async UniTask ReplaceCore(OperationKind kind, IScreenIdentifier id, ReplaceOptions opt, CancellationToken ct)
+		async UniTask<LiveEntry> ReplaceCore(OperationKind kind, IScreenIdentifier id, ReplaceOptions opt, CancellationToken ct)
 		{
 			if (_history.Count == 0)
 			{
-				await PushCore(kind, id, new PushOptions
+				return await PushCore(kind, id, new PushOptions
 				{
 					Configure = opt.Configure,
 					CachePolicyOverride = opt.CachePolicyOverride,
 					ModalOverride = opt.ModalOverride,
 				}, resultSource: null, ct);
-				return;
 			}
 
 			var from = Current;
@@ -583,7 +638,7 @@ namespace ScreenFramework
 			{
 				// ロールバック可能ゾーン
 				effect = await ResolveAndInstantiateEffectAsync(ctx, ct);
-				var newEntry = await CreateAndPreloadAsync(id, pushStore, ctx, effect, EffectZone.Rollback, ct);
+				var newEntry = await CreateAndPreloadAsync(id, pushStore, ctx, effect, EffectZone.Rollback, opt.CachePolicyOverride, ct);
 				if (ct.IsCancellationRequested)
 				{
 					// hook 側が ct を観測せず完走した場合でも、ロード済み entry を漏らさず巻き戻す
@@ -607,6 +662,7 @@ namespace ScreenFramework
 				_history.ReplaceCurrent(id);
 
 				await EnterNewTopAsync(newEntry, effect, ctx, safeCt);
+				return newEntry;
 			}
 			finally
 			{
@@ -620,7 +676,7 @@ namespace ScreenFramework
 		/// Push/Replace の「先ロード→成功後破棄」ゾーン設計に揃える。Effect の解決元 <c>from</c> は旧実装どおり null
 		/// （全消し後の Push 相当 = 「無から登場」）にして演出挙動を変えない。
 		/// </summary>
-		async UniTask ResetCore(IScreenIdentifier id, ResetOptions opt, CancellationToken ct)
+		async UniTask<LiveEntry> ResetCore(IScreenIdentifier id, ResetOptions opt, CancellationToken ct)
 		{
 			var ctx = NewContext(OperationKind.Reset, from: null, id, opt.Configure, out var pushStore);
 
@@ -629,7 +685,7 @@ namespace ScreenFramework
 			{
 				// --- ロールバック可能ゾーン: ロード失敗時は既存スタックを一切壊さずに伝播 ---
 				effect = await ResolveAndInstantiateEffectAsync(ctx, ct);
-				var entry = await CreateAndPreloadAsync(id, pushStore, ctx, effect, EffectZone.Rollback, ct);
+				var entry = await CreateAndPreloadAsync(id, pushStore, ctx, effect, EffectZone.Rollback, opt.CachePolicyOverride, ct);
 				if (ct.IsCancellationRequested)
 				{
 					// hook 側が ct を観測せず完走した場合でも、ロード済み entry を漏らさず巻き戻す
@@ -640,9 +696,10 @@ namespace ScreenFramework
 				// --- 完走必須ゾーン: ここから先は既存スタックを破壊するので巻き戻さない ---
 				var safeCt = CancellationToken.None;
 				entry.Modal = ResolveModal(opt.ModalOverride);
-				await DismissAllInternal(safeCt);
+				await DismissAllInternal(OperationKind.Reset, safeCt);
 				// 単一画面化するので blocker は作らない
 				await CommitFirstScreenAsync(entry, effect, id, ctx, safeCt);
+				return entry;
 			}
 			finally
 			{
@@ -655,7 +712,7 @@ namespace ScreenFramework
 		/// 現在の最上段を Effect 付きで新画面へ差し替える」。旧実装は下スタック破棄が先だったため、
 		/// 新画面のロード失敗で下スタックを巻き戻せず失っていた。最終状態は単一画面なので blocker は作らない。
 		/// </summary>
-		async UniTask ChangeCore(IScreenIdentifier id, ChangeOptions opt, CancellationToken ct)
+		async UniTask<LiveEntry> ChangeCore(IScreenIdentifier id, ChangeOptions opt, CancellationToken ct)
 		{
 			var from = Current;
 			var ctx = NewContext(OperationKind.Change, from, id, opt.Configure, out var pushStore);
@@ -665,7 +722,7 @@ namespace ScreenFramework
 			{
 				// --- ロールバック可能ゾーン ---
 				effect = await ResolveAndInstantiateEffectAsync(ctx, ct);
-				var entry = await CreateAndPreloadAsync(id, pushStore, ctx, effect, EffectZone.Rollback, ct);
+				var entry = await CreateAndPreloadAsync(id, pushStore, ctx, effect, EffectZone.Rollback, opt.CachePolicyOverride, ct);
 				if (ct.IsCancellationRequested)
 				{
 					await DiscardEntryAsync(entry);
@@ -680,7 +737,7 @@ namespace ScreenFramework
 				{
 					// 空スタック: 最初の 1 枚として見せるだけ（Push 相当）
 					await CommitFirstScreenAsync(entry, effect, id, ctx, safeCt);
-					return;
+					return entry;
 				}
 
 				// 下スタックを静かに破棄（現在の最上段は残す）。新画面ロード済みなので破壊して安全。
@@ -694,6 +751,7 @@ namespace ScreenFramework
 				_history.ReplaceCurrent(id);
 
 				await EnterNewTopAsync(entry, effect, ctx, safeCt);
+				return entry;
 			}
 			finally
 			{
@@ -711,7 +769,7 @@ namespace ScreenFramework
 		/// <paramref name="loadZone"/> は Effect の Load hook の例外時挙動を決める。Push/Replace の新規 load は
 		/// <see cref="EffectZone.Rollback"/>、Pop/Close の復元 load は Exit 後なので <see cref="EffectZone.Commit"/>。
 		/// </summary>
-		async UniTask<LiveEntry> CreateAndPreloadAsync(IScreenIdentifier id, NavigationDataStore pushStore, ITransitionContext ctx, EffectRunner effect, EffectZone loadZone, CancellationToken ct)
+		async UniTask<LiveEntry> CreateAndPreloadAsync(IScreenIdentifier id, NavigationDataStore pushStore, ITransitionContext ctx, EffectRunner effect, EffectZone loadZone, ScreenCacheMode? cacheOverride, CancellationToken ct)
 		{
 			var presenter = id.CreatePresenter(_services);
 			presenter.AssignServices(_services);
@@ -720,15 +778,18 @@ namespace ScreenFramework
 			var handle = id.CreateHandle(_services);
 
 			var loadStarted = false;
+			var preloadStarted = false;
 			UniTask<IScreenViewInstance> loadTask = default;
+			UniTask preloadTask = default;
 			try
 			{
 				// 並列起動: Presenter.OnBeforeLoad / handle.Load / Effect.OnBeforeLoad。
-				// Preserve は preload 側が先に失敗した場合に catch 側で load の決着を待ち直すため
+				// Preserve は片方が先に失敗した場合に catch 側で互いの決着を待ち直すため
 				// （UniTask は通常 1 回しか await できない）。
 				loadTask = handle.Load(progress: null, ct).Preserve();
 				loadStarted = true;
-				var preloadTask = presenter.OnBeforeLoad(pushStore, ctx, ct);
+				preloadTask = presenter.OnBeforeLoad(pushStore, ctx, ct).Preserve();
+				preloadStarted = true;
 				var effectBeforeLoad = effect?.OnBeforeLoad(loadZone, ct) ?? UniTask.CompletedTask;
 				await UniTask.WhenAll(preloadTask, effectBeforeLoad);
 				var view = await loadTask;
@@ -744,16 +805,22 @@ namespace ScreenFramework
 					Handle = handle,
 					View = view,
 					PushPayload = pushStore,
-					ResolvedCacheMode = ResolveCacheMode(id, cacheOverride: null),
+					ResolvedCacheMode = ResolveCacheMode(id, cacheOverride),
 				};
 			}
 			catch
 			{
-				// 走行中の load を放置したまま Unload すると競合する（ロード完了後に
-				// インスタンスが設定されて解放漏れになり得る）ので、先に load の決着を待つ。
+				// 走行中の load / OnBeforeLoad を放置したまま Unload・OnAfterUnload を呼ぶと競合する
+				// （ロード完了後にインスタンスが設定されて解放漏れ、OnBeforeLoad と OnAfterUnload の重なり）。
+				// 先に両者の決着を待ってからクリーンアップする。
 				if (loadStarted)
 				{
 					try { await loadTask; }
+					catch { /* cleanup */ }
+				}
+				if (preloadStarted)
+				{
+					try { await preloadTask; }
 					catch { /* cleanup */ }
 				}
 				try { await handle.Unload(CancellationToken.None); }
@@ -777,7 +844,10 @@ namespace ScreenFramework
 				GuardedHook(() => entry.Presenter.OnBeforeExit(writer, ctx, ct)),
 				effect?.OnBeforeExit(EffectZone.Commit, ct) ?? UniTask.CompletedTask);
 
-			var anim = entry.View.As<IScreenAnimatedView>();
+			// 既に非表示で保持されていた画面（KeepOnCover で suspend 中）は見えていないので退場演出を回さない。
+			// inactive な GameObject 上の Animator はステート遷移が進まず PlayExit が永遠に完了しないことがあり、
+			// DismissAll / Reset / Shutdown のハングを招くため。
+			var anim = entry.Suspended ? null : entry.View.As<IScreenAnimatedView>();
 			if (anim != null) await GuardedHook(() => anim.PlayExit(ct));
 			entry.View.SetActive(false);
 
@@ -827,6 +897,18 @@ namespace ScreenFramework
 		/// top が dormant になり遷移操作の前提が壊れるため）。
 		/// </summary>
 		void EditHistorySynced(Action<IScreenHistoryEditor> action)
+		{
+			// 遷移実行中に履歴と並走する _live を書き換えると、進行中の操作が掴んでいる index が
+			// 無効化される（例: PopCore の belowIndex）。チェーンが空になってから DrainDeferredEdits で適用する。
+			if (IsTransitioning)
+			{
+				_deferredEdits.Add(action);
+				return;
+			}
+			ApplyHistoryEdit(action);
+		}
+
+		void ApplyHistoryEdit(Action<IScreenHistoryEditor> action)
 		{
 			if (_history.Count == 0)
 			{
@@ -886,7 +968,7 @@ namespace ScreenFramework
 		/// <summary>
 		/// Enter フェーズ: View 個別の PlayEnter を待つ（旧 transition.End はもう存在しない）。
 		/// </summary>
-		async UniTask RunEnterAsync(LiveEntry entry, EffectRunner effect, CancellationToken ct, bool playViewEnter = true)
+		async UniTask RunEnterAsync(LiveEntry entry, CancellationToken ct, bool playViewEnter = true)
 		{
 			var anim = playViewEnter ? entry.View.As<IScreenAnimatedView>() : null;
 			if (anim != null) await GuardedHook(() => anim.PlayEnter(ct));
@@ -902,14 +984,16 @@ namespace ScreenFramework
 			entry.View.SetParent(_config.Container.Root);
 			entry.View.SetActive(true);
 
+			// OnBeforeEnter / OnAfterEnter には同じ push payload を渡す（後者だけ空、という非対称を解消）。
+			var payload = entry.PushPayload;
 			await WhenBoth(
-				GuardedHook(() => entry.Presenter.OnBeforeEnter(entry.PushPayload, ctx, safeCt)),
+				GuardedHook(() => entry.Presenter.OnBeforeEnter(payload, ctx, safeCt)),
 				effect?.OnBeforeEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
 
-			await RunEnterAsync(entry, effect, safeCt);
+			await RunEnterAsync(entry, safeCt);
 
 			await WhenBoth(
-				GuardedHook(() => entry.Presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, ctx, safeCt)),
+				GuardedHook(() => entry.Presenter.OnAfterEnter(payload, ctx, safeCt)),
 				effect?.OnAfterEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
 			entry.PushPayload = null;
 		}
@@ -925,9 +1009,10 @@ namespace ScreenFramework
 				await effect.OnBeforeExit(EffectZone.Commit, safeCt);
 				await effect.OnAfterExit(EffectZone.Commit, safeCt);
 			}
-			await EnterNewTopAsync(entry, effect, ctx, safeCt);
+			// bookkeeping は Enter hook より前（Push と統一）。Enter hook 内の Current は新画面になる。
 			_history.Push(id);
 			_live.Add(entry);
+			await EnterNewTopAsync(entry, effect, ctx, safeCt);
 		}
 
 		/// <summary>
@@ -989,13 +1074,13 @@ namespace ScreenFramework
 		// 特に FireEnd は finally から呼ばれるため、素通しすると元の例外を握り潰してしまう。
 		void FireStart(IScreenIdentifier from, IScreenIdentifier to, ScreenTransitionKind kind)
 		{
-			try { OnTransitionStart?.Invoke(new ScreenTransitionEvent(from, to, kind)); }
+			try { OnTransitionStart?.Invoke(new ScreenTransitionEvent(from, to, kind, succeeded: true)); }
 			catch (Exception e) { Debug.LogException(e); }
 		}
 
-		void FireEnd(IScreenIdentifier from, IScreenIdentifier to, ScreenTransitionKind kind)
+		void FireEnd(IScreenIdentifier from, IScreenIdentifier to, ScreenTransitionKind kind, bool succeeded = true)
 		{
-			try { OnTransitionEnd?.Invoke(new ScreenTransitionEvent(from, to, kind)); }
+			try { OnTransitionEnd?.Invoke(new ScreenTransitionEvent(from, to, kind, succeeded)); }
 			catch (Exception e) { Debug.LogException(e); }
 		}
 

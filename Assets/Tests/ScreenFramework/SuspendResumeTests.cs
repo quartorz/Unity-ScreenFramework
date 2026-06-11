@@ -79,6 +79,43 @@ namespace Tests.ScreenFramework
 			CollectionAssert.DoesNotContain(lowerPresenter.Events, "Resume");
 		});
 
+		[UnityTest]
+		public IEnumerator PushCachePolicyOverride_KeepsThatScreen_EvenWhenLayerDestroys() => UniTask.ToCoroutine(async () =>
+		{
+			var lowerPresenter = new RecordingPresenter("A");
+			var upperPresenter = new RecordingPresenter("B");
+
+			SetupNavigator(StackMode.Cover, ScreenCacheMode.DestroyOnCover); // レイヤー既定は破棄
+
+			// A 自身を「覆われても保持」で Push する。覆う側ではなく A の指定が効くのが正。
+			await ScreenNavigator.Page.Push(new RecScreenId(lowerPresenter),
+				new PushOptions { CachePolicyOverride = ScreenCacheMode.KeepOnCover });
+			await ScreenNavigator.Page.Push(new RecScreenId(upperPresenter));
+
+			CollectionAssert.Contains(lowerPresenter.Events, "Suspend");
+			CollectionAssert.DoesNotContain(lowerPresenter.Events, "AfterUnload");
+
+			await ScreenNavigator.Page.Pop();
+			CollectionAssert.Contains(lowerPresenter.Events, "Resume");
+		});
+
+		[UnityTest]
+		public IEnumerator CoveringPushOverride_DoesNotLeakToCoveredScreen() => UniTask.ToCoroutine(async () =>
+		{
+			var lowerPresenter = new RecordingPresenter("A");
+			var upperPresenter = new RecordingPresenter("B");
+
+			SetupNavigator(StackMode.Cover, ScreenCacheMode.KeepOnCover); // レイヤー既定は保持
+
+			await ScreenNavigator.Page.Push(new RecScreenId(lowerPresenter));
+			// 覆う側 B が DestroyOnCover を指定しても、A の運命は A 自身の方針（Keep）で決まる。
+			await ScreenNavigator.Page.Push(new RecScreenId(upperPresenter),
+				new PushOptions { CachePolicyOverride = ScreenCacheMode.DestroyOnCover });
+
+			CollectionAssert.Contains(lowerPresenter.Events, "Suspend", "覆う側の override は覆われる画面に漏れない");
+			CollectionAssert.DoesNotContain(lowerPresenter.Events, "AfterUnload");
+		});
+
 		// ---- セットアップ ----
 
 		IScreenContainer _pageContainer;
@@ -86,6 +123,8 @@ namespace Tests.ScreenFramework
 		[TearDown]
 		public void TearDown()
 		{
+			// 再 Initialize 例外ガード（既初期化なら throw）があるので、各テスト後に静的参照を畳む。
+			ScreenNavigator.Shutdown().Forget();
 			if (_pageContainer is MonoBehaviour mb && mb != null)
 				Object.DestroyImmediate(mb.gameObject);
 		}

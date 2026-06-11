@@ -228,38 +228,6 @@ namespace ScreenFramework
 			}
 		}
 
-		/// <summary>
-		/// このレイヤーを即時・同期で破棄する。進行中/待機中の遷移を全てキャンセルし、保持中の画面を
-		/// 退場演出なしで Unload（best-effort, ログ）、pending な PushAndAwait の awaiter を OCE で解決し、
-		/// 履歴・ライブ列をクリアする。再 Initialize / Shutdown 時に <see cref="ScreenNavigator"/> から呼ばれる。
-		/// <para>遷移が進行中（特に完走必須ゾーン）でないアイドル時に呼ぶ前提。完走必須ゾーンの最中に呼ぶと
-		/// その遷移の継続とクリアが競合しうる。</para>
-		/// </summary>
-		public void Shutdown()
-		{
-			// rollback ゾーンで待機中の遷移を起こしてキャンセルさせる（完走必須ゾーンは safeCt=None なので止まらない）。
-			foreach (var cts in _pendingCtses.ToArray())
-			{
-				try { cts.Cancel(); }
-				catch (Exception e) { Debug.LogException(e); }
-			}
-
-			for (var i = _live.Count - 1; i >= 0; i--)
-			{
-				var entry = _live[i];
-				if (entry == null) continue;
-				DestroyBlockerIfAny(entry);
-				entry.ResultSource?.TrySetCanceled();
-				entry.ResultSource = null;
-				DiscardEntryAsync(entry).Forget(); // Unload + OnAfterUnload（best-effort, 例外はログ）
-			}
-
-			_live.Clear();
-			_history.ClearAll();
-			IsTransitioning = false;
-			_currentDoneSignal = null;
-		}
-
 		// ===========================================================================
 		// Preempt スケジューラ
 		// ===========================================================================

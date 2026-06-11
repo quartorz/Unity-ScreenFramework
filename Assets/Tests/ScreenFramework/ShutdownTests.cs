@@ -9,7 +9,7 @@ namespace Tests.ScreenFramework
 	using static ScreenTestFixtures;
 
 	/// <summary>
-	/// ScreenNavigator.Shutdown() と再 Initialize の挙動を検証する。
+	/// ScreenNavigator.Shutdown()（非同期・DismissAll 演出あり）と再 Initialize（既初期化なら例外）の挙動を検証する。
 	/// 旧実装は再 Initialize で旧 navigator の画面群が孤児化し、pending PushAndAwait の awaiter が永久未解決だった。
 	/// </summary>
 	public sealed class ShutdownTests
@@ -28,7 +28,8 @@ namespace Tests.ScreenFramework
 		[TearDown]
 		public void TearDown()
 		{
-			ScreenNavigator.Shutdown();
+			// 静的参照は同期的に外れるので、演出完了は待たずに後始末してよい（mock view は即時完了）。
+			ScreenNavigator.Shutdown().Forget();
 			DestroyContainer(_page);
 			DestroyContainer(_dialog);
 			DestroyContainer(_sys);
@@ -50,7 +51,7 @@ namespace Tests.ScreenFramework
 			await ScreenNavigator.Page.Push(new MarkerScreenId("A"));
 			Assert.AreEqual(1, ScreenNavigator.Page.History.Count);
 
-			ScreenNavigator.Shutdown();
+			await ScreenNavigator.Shutdown();
 
 			Assert.IsNull(ScreenNavigator.Page);
 			Assert.IsNull(ScreenNavigator.Dialog);
@@ -60,35 +61,41 @@ namespace Tests.ScreenFramework
 		[Test]
 		public async Task Shutdown_CancelsPendingPushAndAwait()
 		{
-			// 結果を SetResult しないダイアログ。awaiter は開いたまま（Pop されるまで解決しない）。
+			// 結果を SetResult しないダイアログ。awaiter は開いたまま（Pop / Dismiss されるまで解決しない）。
 			var task = ScreenNavigator.Page.PushAndAwait(new EchoDialogId(null));
 			await UniTask.Yield();
 			await UniTask.Yield();
 
-			ScreenNavigator.Shutdown();
+			await ScreenNavigator.Shutdown();
 
 			try
 			{
 				await task;
-				Assert.Fail("Shutdown should cancel the pending PushAndAwait awaiter");
+				Assert.Fail("Shutdown の DismissAll で pending awaiter がキャンセルされるべき");
 			}
 			catch (OperationCanceledException) { /* 期待 */ }
 		}
 
 		[Test]
-		public async Task Reinitialize_ShutsDownPrevious()
+		public void Initialize_WhenAlreadyInitialized_Throws()
+		{
+			// SetUp で初期化済み。Shutdown せずに再初期化すると例外。
+			Assert.Throws<InvalidOperationException>(InitializeNavigator);
+		}
+
+		[Test]
+		public async Task Shutdown_ThenInitialize_Works()
 		{
 			await ScreenNavigator.Page.Push(new MarkerScreenId("A"));
-			await ScreenNavigator.Page.Push(new MarkerScreenId("B"));
-			var oldPage = ScreenNavigator.Page;
-			Assert.AreEqual(2, oldPage.History.Count);
 
-			// 再 Initialize → 旧 navigator を自動 Shutdown してから差し替え
-			InitializeNavigator();
+			await ScreenNavigator.Shutdown();
+			Assert.IsNull(ScreenNavigator.Page);
 
-			Assert.AreNotSame(oldPage, ScreenNavigator.Page, "新しい navigator に差し替わる");
-			Assert.AreEqual(0, ScreenNavigator.Page.History.Count, "新 navigator は空");
-			Assert.AreEqual(0, oldPage.History.Count, "旧 navigator は Shutdown されて空（孤児化しない）");
+			InitializeNavigator(); // Shutdown 済みなので例外にならない
+			Assert.IsNotNull(ScreenNavigator.Page);
+
+			await ScreenNavigator.Page.Push(new MarkerScreenId("X"));
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count);
 		}
 	}
 }

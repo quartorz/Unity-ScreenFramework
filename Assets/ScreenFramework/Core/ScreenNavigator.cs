@@ -29,9 +29,11 @@ namespace ScreenFramework
 			if (setup.Dialog == null) throw new ArgumentException("Dialog layer config is required.", nameof(setup));
 			if (setup.SystemDialog == null) throw new ArgumentException("SystemDialog layer config is required.", nameof(setup));
 
-			// 既に初期化済みなら、旧 navigator の画面群を孤児化させず、pending awaiter も解決してから差し替える。
-			// （検証で例外が出た場合は破棄しない＝ここまで来てから Shutdown する）
-			Shutdown();
+			// 既に初期化済みのまま再初期化すると旧 navigator の画面群が孤児化し、pending awaiter が永久未解決になる。
+			// 明示的に await ScreenNavigator.Shutdown() を呼んでから初期化させる。
+			if (Page != null || Dialog != null || SystemDialog != null)
+				throw new InvalidOperationException(
+					"ScreenNavigator は既に初期化済みです。再初期化の前に await ScreenNavigator.Shutdown() を呼んでください。");
 
 			Page = new ScreenNavigatorImpl(services, setup.Page);
 			Dialog = new ScreenNavigatorImpl(services, setup.Dialog);
@@ -39,19 +41,30 @@ namespace ScreenFramework
 		}
 
 		/// <summary>
-		/// 全レイヤーを即時破棄する。各 navigator の進行中遷移をキャンセルし、保持画面を Unload、
-		/// pending な <see cref="IScreenNavigator.PushAndAwait{TResult}"/> の awaiter を
-		/// <see cref="OperationCanceledException"/> で解決し、静的参照を null に戻す。
+		/// 全レイヤーを破棄する。各 navigator を <see cref="IScreenNavigator.DismissAll"/> で
+		/// 退場演出付きに畳み（進行中の遷移は完了を待ってから、待機中の遷移と pending な
+		/// <see cref="IScreenNavigator.PushAndAwait{TResult}"/> の awaiter は
+		/// <see cref="OperationCanceledException"/> で解決される）、静的参照を null に戻す。
 		/// シーン破棄や再初期化の前に呼ぶ。呼び出し後は再度 <see cref="Initialize"/> が必要。
+		/// <para>静的参照は同期的に null にするので、戻り値を待たずとも直後の <see cref="Initialize"/> は可能。
+		/// 退場演出の完了まで待ちたい場合は戻り値を await する。</para>
 		/// </summary>
-		public static void Shutdown()
+		public static UniTask Shutdown()
 		{
-			(Page as ScreenNavigatorImpl)?.Shutdown();
-			(Dialog as ScreenNavigatorImpl)?.Shutdown();
-			(SystemDialog as ScreenNavigatorImpl)?.Shutdown();
+			var page = Page;
+			var dialog = Dialog;
+			var systemDialog = SystemDialog;
+
+			// 先に静的参照を外して、畳んでいる最中に新しい操作が差し込まれないようにする。
 			Page = null;
 			Dialog = null;
 			SystemDialog = null;
+
+			var tasks = new List<UniTask>(3);
+			if (page != null) tasks.Add(page.DismissAll());
+			if (dialog != null) tasks.Add(dialog.DismissAll());
+			if (systemDialog != null) tasks.Add(systemDialog.DismissAll());
+			return UniTask.WhenAll(tasks);
 		}
 
 		/// <summary>テストでの差し替え等用。</summary>

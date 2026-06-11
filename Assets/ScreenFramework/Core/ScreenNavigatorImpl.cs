@@ -839,21 +839,25 @@ namespace ScreenFramework
 			var store = returnStore ?? new NavigationDataStore();
 			var writer = (INavigationDataWriter)store;
 
-			// Exit は常に完走必須ゾーン。hook の例外で退場・破棄の bookkeeping が中断しないよう全ステップを保護する。
-			await WhenBoth(
-				GuardedHook(() => entry.Presenter.OnBeforeExit(writer, ctx, ct)),
-				effect?.OnBeforeExit(EffectZone.Commit, ct) ?? UniTask.CompletedTask);
+			// 既に suspend 済みの画面（KeepOnCover で覆われた中間画面など）は、BeforeExit/AfterExit/OnSuspend を
+			// 対で消化して隠れている。Resume を挟まずに破棄される場合、もう一度 Exit hook を走らせると
+			// 「Resume なしの 2 連続 Exit」になり不整合なので、退場フェーズは丸ごとスキップして teardown だけ行う。
+			// Stack mode の下層画面は ExitPreviousAsync を通らず Suspended=false のままなので、ここは通常どおり Exit する。
+			if (!entry.Suspended)
+			{
+				// Exit は常に完走必須ゾーン。hook の例外で退場・破棄の bookkeeping が中断しないよう全ステップを保護する。
+				await WhenBoth(
+					GuardedHook(() => entry.Presenter.OnBeforeExit(writer, ctx, ct)),
+					effect?.OnBeforeExit(EffectZone.Commit, ct) ?? UniTask.CompletedTask);
 
-			// 既に非表示で保持されていた画面（KeepOnCover で suspend 中）は見えていないので退場演出を回さない。
-			// inactive な GameObject 上の Animator はステート遷移が進まず PlayExit が永遠に完了しないことがあり、
-			// DismissAll / Reset / Shutdown のハングを招くため。
-			var anim = entry.Suspended ? null : entry.View.As<IScreenAnimatedView>();
-			if (anim != null) await GuardedHook(() => anim.PlayExit(ct));
-			entry.View.SetActive(false);
+				var anim = entry.View.As<IScreenAnimatedView>();
+				if (anim != null) await GuardedHook(() => anim.PlayExit(ct));
+				entry.View.SetActive(false);
 
-			await WhenBoth(
-				GuardedHook(() => entry.Presenter.OnAfterExit(writer, ctx, ct)),
-				effect?.OnAfterExit(EffectZone.Commit, ct) ?? UniTask.CompletedTask);
+				await WhenBoth(
+					GuardedHook(() => entry.Presenter.OnAfterExit(writer, ctx, ct)),
+					effect?.OnAfterExit(EffectZone.Commit, ct) ?? UniTask.CompletedTask);
+			}
 
 			if (cacheMode == ScreenCacheMode.DestroyOnCover || isPop)
 			{

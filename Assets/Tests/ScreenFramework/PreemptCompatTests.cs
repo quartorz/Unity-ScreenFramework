@@ -77,7 +77,8 @@ namespace Tests.ScreenFramework
 			var slowSource = new UniTaskCompletionSource<IScreenViewInstance>();
 			var slowHandle = new ControllableHandle(slowSource);
 
-			// Change は内部で ClearAllExceptCurrent → Replace。Replace の Load 段で詰まる
+			// Change は内部で「新画面の Load（ロールバック可能ゾーン）→ 成功後に下スタック破棄」。
+			// ここでは Load 段で詰まる＝まだ破壊前なので、preempt されても下スタックは壊れない。
 			var slowChange = ScreenNavigator.Page.Change(new ControllableScreenId(slowHandle));
 
 			await UniTask.Yield();
@@ -90,7 +91,7 @@ namespace Tests.ScreenFramework
 			Assert.IsTrue(slowHandle.UnloadCalled);
 			await fastPush;
 
-			// Change 側で履歴の cleanup が走った後に preempt されたので、最終的に history は Push 後の状態
+			// Change の Load が preempt されたので破壊は一切起きず、その上に 99 が積まれる
 			Assert.IsInstanceOf<InstantScreenId>(ScreenNavigator.Page.Current);
 			Assert.AreEqual(99, ((InstantScreenId)ScreenNavigator.Page.Current).N);
 
@@ -107,7 +108,8 @@ namespace Tests.ScreenFramework
 			var slowSource = new UniTaskCompletionSource<IScreenViewInstance>();
 			var slowHandle = new ControllableHandle(slowSource);
 
-			// Reset は内部で DismissAll → Push。Push の Load 段で詰まる
+			// Reset は内部で「新画面の Load（ロールバック可能ゾーン）→ 成功後に全破壊」。
+			// ここでは Load 段で詰まる＝まだ破壊前なので、preempt されても既存スタックは壊れない。
 			var slowReset = ScreenNavigator.Page.Reset(new ControllableScreenId(slowHandle));
 
 			await UniTask.Yield();

@@ -154,16 +154,7 @@ namespace ScreenFramework
 			{
 				var from = Current;
 				FireStart(from, id, ScreenTransitionKind.Change);
-				try
-				{
-					await ClearAllExceptCurrentAsync(myCt);
-					await ReplaceCore(OperationKind.Change, id, new ReplaceOptions
-					{
-						Configure = opt.Configure,
-						CachePolicyOverride = opt.CachePolicyOverride,
-						ModalOverride = opt.ModalOverride,
-					}, myCt);
-				}
+				try { await ChangeCore(id, opt, myCt); }
 				finally { FireEnd(from, Current, ScreenTransitionKind.Change); }
 			});
 		}
@@ -175,16 +166,7 @@ namespace ScreenFramework
 			{
 				var from = Current;
 				FireStart(from, id, ScreenTransitionKind.Reset);
-				try
-				{
-					await DismissAllInternal(myCt);
-					await PushCore(OperationKind.Reset, id, new PushOptions
-					{
-						Configure = opt.Configure,
-						CachePolicyOverride = opt.CachePolicyOverride,
-						ModalOverride = opt.ModalOverride,
-					}, resultSource: null, myCt);
-				}
+				try { await ResetCore(id, opt, myCt); }
 				finally { FireEnd(from, Current, ScreenTransitionKind.Reset); }
 			});
 		}
@@ -423,19 +405,7 @@ namespace ScreenFramework
 					entry.ModalBlocker = CreateModalBlocker(_config.Container.Root);
 				}
 
-				entry.View.SetParent(_config.Container.Root);
-				entry.View.SetActive(true);
-
-				await WhenBoth(
-					entry.Presenter.OnBeforeEnter(entry.PushPayload, ctx, safeCt),
-					effect?.OnBeforeEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
-
-				await RunEnterAsync(entry, effect, safeCt);
-
-				await WhenBoth(
-					entry.Presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, ctx, safeCt),
-					effect?.OnAfterEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
-				entry.PushPayload = null;
+				await EnterNewTopAsync(entry, effect, ctx, safeCt);
 
 				_history.Push(id);
 				_live.Add(entry);
@@ -485,7 +455,7 @@ namespace ScreenFramework
 				else if (below.Suspended)
 				{
 					below.View.SetActive(true);
-					await below.Presenter.OnResume(safeCt);
+					await GuardedHook(() => below.Presenter.OnResume(safeCt));
 					below.Suspended = false;
 					belowReappears = true;
 				}
@@ -496,11 +466,11 @@ namespace ScreenFramework
 				}
 
 				await WhenBoth(
-					below.Presenter.OnBeforeEnter(returnStore, ctx, safeCt),
+					GuardedHook(() => below.Presenter.OnBeforeEnter(returnStore, ctx, safeCt)),
 					effect?.OnBeforeEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
 				await RunEnterAsync(below, effect, safeCt, playViewEnter: belowReappears);
 				await WhenBoth(
-					below.Presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, ctx, safeCt),
+					GuardedHook(() => below.Presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, ctx, safeCt)),
 					effect?.OnAfterEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
 			}
 			finally
@@ -561,7 +531,7 @@ namespace ScreenFramework
 					else if (below.Suspended)
 					{
 						below.View.SetActive(true);
-						await below.Presenter.OnResume(safeCt);
+						await GuardedHook(() => below.Presenter.OnResume(safeCt));
 						below.Suspended = false;
 						belowReappears = true;
 					}
@@ -572,11 +542,11 @@ namespace ScreenFramework
 					}
 
 					await WhenBoth(
-						below.Presenter.OnBeforeEnter(returnStore, ctx, safeCt),
+						GuardedHook(() => below.Presenter.OnBeforeEnter(returnStore, ctx, safeCt)),
 						effect?.OnBeforeEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
 					await RunEnterAsync(below, effect, safeCt, playViewEnter: belowReappears);
 					await WhenBoth(
-						below.Presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, ctx, safeCt),
+						GuardedHook(() => below.Presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, ctx, safeCt)),
 						effect?.OnAfterEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
 				}
 				else if (effect != null)
@@ -636,17 +606,94 @@ namespace ScreenFramework
 				_live[_live.Count - 1] = newEntry;
 				_history.ReplaceCurrent(id);
 
-				newEntry.View.SetParent(_config.Container.Root);
-				newEntry.View.SetActive(true);
+				await EnterNewTopAsync(newEntry, effect, ctx, safeCt);
+			}
+			finally
+			{
+				effect?.Finish();
+			}
+		}
 
-				await WhenBoth(
-					newEntry.Presenter.OnBeforeEnter(newEntry.PushPayload, ctx, safeCt),
-					effect?.OnBeforeEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
-				await RunEnterAsync(newEntry, effect, safeCt);
-				await WhenBoth(
-					newEntry.Presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, ctx, safeCt),
-					effect?.OnAfterEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
-				newEntry.PushPayload = null;
+		/// <summary>
+		/// Reset の本体。「先に新画面をロード（ロールバック可能）→ 成功してから既存スタックを全破壊→新画面を表示」。
+		/// 旧実装は破壊が先だったため、新画面のロード失敗で「スタック 0 枚・Current=null の黒画面」から復帰不能だった。
+		/// Push/Replace の「先ロード→成功後破棄」ゾーン設計に揃える。Effect の解決元 <c>from</c> は旧実装どおり null
+		/// （全消し後の Push 相当 = 「無から登場」）にして演出挙動を変えない。
+		/// </summary>
+		async UniTask ResetCore(IScreenIdentifier id, ResetOptions opt, CancellationToken ct)
+		{
+			var ctx = NewContext(OperationKind.Reset, from: null, id, opt.Configure, out var pushStore);
+
+			EffectRunner effect = null;
+			try
+			{
+				// --- ロールバック可能ゾーン: ロード失敗時は既存スタックを一切壊さずに伝播 ---
+				effect = await ResolveAndInstantiateEffectAsync(ctx, ct);
+				var entry = await CreateAndPreloadAsync(id, pushStore, ctx, effect, EffectZone.Rollback, ct);
+				if (ct.IsCancellationRequested)
+				{
+					// hook 側が ct を観測せず完走した場合でも、ロード済み entry を漏らさず巻き戻す
+					await DiscardEntryAsync(entry);
+				}
+				ct.ThrowIfCancellationRequested();
+
+				// --- 完走必須ゾーン: ここから先は既存スタックを破壊するので巻き戻さない ---
+				var safeCt = CancellationToken.None;
+				entry.Modal = ResolveModal(opt.ModalOverride);
+				await DismissAllInternal(safeCt);
+				// 単一画面化するので blocker は作らない
+				await CommitFirstScreenAsync(entry, effect, id, ctx, safeCt);
+			}
+			finally
+			{
+				effect?.Finish();
+			}
+		}
+
+		/// <summary>
+		/// Change の本体。「先に新画面をロード（ロールバック可能）→ 成功してから下スタックを破棄し、
+		/// 現在の最上段を Effect 付きで新画面へ差し替える」。旧実装は下スタック破棄が先だったため、
+		/// 新画面のロード失敗で下スタックを巻き戻せず失っていた。最終状態は単一画面なので blocker は作らない。
+		/// </summary>
+		async UniTask ChangeCore(IScreenIdentifier id, ChangeOptions opt, CancellationToken ct)
+		{
+			var from = Current;
+			var ctx = NewContext(OperationKind.Change, from, id, opt.Configure, out var pushStore);
+
+			EffectRunner effect = null;
+			try
+			{
+				// --- ロールバック可能ゾーン ---
+				effect = await ResolveAndInstantiateEffectAsync(ctx, ct);
+				var entry = await CreateAndPreloadAsync(id, pushStore, ctx, effect, EffectZone.Rollback, ct);
+				if (ct.IsCancellationRequested)
+				{
+					await DiscardEntryAsync(entry);
+				}
+				ct.ThrowIfCancellationRequested();
+
+				// --- 完走必須ゾーン ---
+				var safeCt = CancellationToken.None;
+				entry.Modal = ResolveModal(opt.ModalOverride);
+
+				if (_live.Count == 0)
+				{
+					// 空スタック: 最初の 1 枚として見せるだけ（Push 相当）
+					await CommitFirstScreenAsync(entry, effect, id, ctx, safeCt);
+					return;
+				}
+
+				// 下スタックを静かに破棄（現在の最上段は残す）。新画面ロード済みなので破壊して安全。
+				await ClearAllExceptCurrentAsync(safeCt);
+				// 現在の最上段を Effect 付きで退場させ、新画面へ差し替える（cross-fade replace 相当）
+				var top = _live[_live.Count - 1];
+				await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: false, effect, ctx, safeCt);
+				DestroyBlockerIfAny(top);
+
+				_live[_live.Count - 1] = entry;
+				_history.ReplaceCurrent(id);
+
+				await EnterNewTopAsync(entry, effect, ctx, safeCt);
 			}
 			finally
 			{
@@ -725,23 +772,23 @@ namespace ScreenFramework
 			var store = returnStore ?? new NavigationDataStore();
 			var writer = (INavigationDataWriter)store;
 
-			// Exit は常に完走必須ゾーン。
+			// Exit は常に完走必須ゾーン。hook の例外で退場・破棄の bookkeeping が中断しないよう全ステップを保護する。
 			await WhenBoth(
-				entry.Presenter.OnBeforeExit(writer, ctx, ct),
+				GuardedHook(() => entry.Presenter.OnBeforeExit(writer, ctx, ct)),
 				effect?.OnBeforeExit(EffectZone.Commit, ct) ?? UniTask.CompletedTask);
 
 			var anim = entry.View.As<IScreenAnimatedView>();
-			if (anim != null) await anim.PlayExit(ct);
+			if (anim != null) await GuardedHook(() => anim.PlayExit(ct));
 			entry.View.SetActive(false);
 
 			await WhenBoth(
-				entry.Presenter.OnAfterExit(writer, ctx, ct),
+				GuardedHook(() => entry.Presenter.OnAfterExit(writer, ctx, ct)),
 				effect?.OnAfterExit(EffectZone.Commit, ct) ?? UniTask.CompletedTask);
 
 			if (cacheMode == ScreenCacheMode.DestroyOnCover || isPop)
 			{
-				await entry.Handle.Unload(ct);
-				await entry.Presenter.OnAfterUnload(writer, ct);
+				await GuardedHook(() => entry.Handle.Unload(ct));
+				await GuardedHook(() => entry.Presenter.OnAfterUnload(writer, ct));
 				if (entry.ResultSource != null)
 				{
 					if (isNormalPop) entry.ResultSource.TrySetResult(store);
@@ -751,7 +798,7 @@ namespace ScreenFramework
 			}
 			else
 			{
-				await entry.Presenter.OnSuspend(ct);
+				await GuardedHook(() => entry.Presenter.OnSuspend(ct));
 				entry.Suspended = true;
 			}
 		}
@@ -842,7 +889,45 @@ namespace ScreenFramework
 		async UniTask RunEnterAsync(LiveEntry entry, EffectRunner effect, CancellationToken ct, bool playViewEnter = true)
 		{
 			var anim = playViewEnter ? entry.View.As<IScreenAnimatedView>() : null;
-			if (anim != null) await anim.PlayEnter(ct);
+			if (anim != null) await GuardedHook(() => anim.PlayEnter(ct));
+		}
+
+		/// <summary>
+		/// 新規 entry を最上段として見せる完走必須シーケンス: SetParent/Active → Enter hook（Presenter + Effect）。
+		/// Push/Replace/Change/Reset の commit ゾーンで共有する。呼び出し側は事前に blocker 生成・履歴更新の
+		/// 要否を判断し、本メソッド後に <c>_history</c>/<c>_live</c> へ反映する。
+		/// </summary>
+		async UniTask EnterNewTopAsync(LiveEntry entry, EffectRunner effect, ITransitionContext ctx, CancellationToken safeCt)
+		{
+			entry.View.SetParent(_config.Container.Root);
+			entry.View.SetActive(true);
+
+			await WhenBoth(
+				GuardedHook(() => entry.Presenter.OnBeforeEnter(entry.PushPayload, ctx, safeCt)),
+				effect?.OnBeforeEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
+
+			await RunEnterAsync(entry, effect, safeCt);
+
+			await WhenBoth(
+				GuardedHook(() => entry.Presenter.OnAfterEnter(EmptyNavigationDataReader.Instance, ctx, safeCt)),
+				effect?.OnAfterEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
+			entry.PushPayload = null;
+		}
+
+		/// <summary>
+		/// 既存スタックを破棄し終えた前提で、新 entry を「唯一の画面」として確定する。
+		/// Effect の Exit hook（消える側の演出フェーズ）を進めてから Enter する。Change（空スタック時）/ Reset 共用。
+		/// </summary>
+		async UniTask CommitFirstScreenAsync(LiveEntry entry, EffectRunner effect, IScreenIdentifier id, ITransitionContext ctx, CancellationToken safeCt)
+		{
+			if (effect != null)
+			{
+				await effect.OnBeforeExit(EffectZone.Commit, safeCt);
+				await effect.OnAfterExit(EffectZone.Commit, safeCt);
+			}
+			await EnterNewTopAsync(entry, effect, ctx, safeCt);
+			_history.Push(id);
+			_live.Add(entry);
 		}
 
 		/// <summary>
@@ -850,6 +935,21 @@ namespace ScreenFramework
 		/// WhenAll で待っても Presenter 側を巻き込まない。
 		/// </summary>
 		static UniTask WhenBoth(UniTask a, UniTask b) => UniTask.WhenAll(a, b);
+
+		/// <summary>
+		/// 完走必須（commit）ゾーンの 1 ステップ（Presenter ライフサイクル hook / View 演出 / Handle.Unload）を
+		/// Effect と同じく例外吸収して実行する。commit に入った後は「画面の見た目」と Navigator の内部状態
+		/// （_history / _live）を一致させ続けるのが最優先なので、ステップの例外（同期 throw 含む）はログに留めて
+		/// 遷移本筋を続行する。これがないと、たとえば OnBeforeEnter/OnAfterEnter の throw で
+		/// 「見えているのに Navigator が知らない孤児」、OnAfterExit の throw で「隠れたのに Current のまま」になり、
+		/// 装飾（Effect）より本筋（Presenter）の方が壊れやすいという逆転が起きる。
+		/// rollback ゾーン（OnInitialize / OnBeforeLoad / OnAfterLoad）はこれを通さず、従来どおり例外を伝播させる。
+		/// </summary>
+		static async UniTask GuardedHook(Func<UniTask> step)
+		{
+			try { await step(); }
+			catch (Exception e) { Debug.LogException(e); }
+		}
 
 		bool ResolveModal(bool? modalOverride)
 			=> modalOverride ?? _config.DefaultModal;

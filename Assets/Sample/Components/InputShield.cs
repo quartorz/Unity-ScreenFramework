@@ -10,7 +10,7 @@ namespace Sample
 	/// 入力を吸う。<b>シーンに手動配置</b>し、どの Shield をいつ出すかはプロジェクト側が決める
 	/// （<see cref="ShieldUniTaskExtensions.WithLoadingShield(Cysharp.Threading.Tasks.UniTask,string)"/> 等）。
 	/// <para>
-	/// ScreenFramework のレイヤー Canvas（ScreenLayerConfig.SortingOrder）と同じ sorting 空間に置くことで、
+	/// シーンの Canvas 構成（レイヤーや画面の Canvas）と同じ sorting 空間に置くことで、
 	/// 上位レイヤー（Dialog 等）に出した Shield が下位レイヤー（Page）を Canvas 優先度で遮断できる。
 	/// 配置 sortingOrder は <b>SystemDialog レイヤーより小さく</b>すること。最前面（エラーダイアログ等）まで
 	/// 遮蔽すると、ダイアログを閉じられず進行不能になる。複数階層の Shield は <see cref="Key"/> で区別する。

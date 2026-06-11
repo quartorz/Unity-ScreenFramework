@@ -22,10 +22,6 @@ namespace Sample.Debug
 		[SerializeField] Transform _effectRoot;
 		[SerializeField] EffectRegistry _pageEffectRegistry;
 
-		// SampleBootstrap と同じ。指定するとレイヤーごとに ScreenSpaceCamera の Canvas を動的生成する。
-		// 未指定なら従来どおりシーンの単一 Canvas を使う。
-		[SerializeField] Camera _uiCamera;
-
 		// SampleBootstrap と同じく bundle 常駐用に field で保持。
 		readonly EffectWarmer _effectWarmer = new();
 
@@ -46,7 +42,7 @@ namespace Sample.Debug
 
 			var setup = SampleScreenLayers.Create(
 				_pageContainer, _dialogContainer, _sysDialogContainer,
-				_effectRoot, _pageEffectRegistry, _uiCamera);
+				_effectRoot, _pageEffectRegistry);
 
 			ScreenNavigator.Initialize(registry, setup);
 			_effectWarmer.WarmDefaults(_pageEffectRegistry).Forget();

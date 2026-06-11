@@ -32,6 +32,9 @@ namespace ScreenFramework
 		{
 			_services = services ?? throw new ArgumentNullException(nameof(services));
 			_config = config ?? throw new ArgumentNullException(nameof(config));
+			// History.Edit は _live と同期して編集する必要がある（履歴だけ書き換わると
+			// 平行リストの不変条件が壊れ、以後の Pop が別画面を復元する）ため Navigator 側で実装する。
+			_history.EditOverride = EditHistorySynced;
 		}
 
 		// ===========================================================================
@@ -367,6 +370,11 @@ namespace ScreenFramework
 				{
 					effect = await ResolveAndInstantiateEffectAsync(ctx, ct);
 					entry = await CreateAndPreloadAsync(id, pushStore, ctx, effect, EffectZone.Rollback, ct);
+					if (ct.IsCancellationRequested)
+					{
+						// hook 側が ct を観測せず完走した場合でも、ロード済み entry を漏らさず巻き戻す
+						await DiscardEntryAsync(entry);
+					}
 					ct.ThrowIfCancellationRequested();
 				}
 				catch (OperationCanceledException)
@@ -606,6 +614,11 @@ namespace ScreenFramework
 				// ロールバック可能ゾーン
 				effect = await ResolveAndInstantiateEffectAsync(ctx, ct);
 				var newEntry = await CreateAndPreloadAsync(id, pushStore, ctx, effect, EffectZone.Rollback, ct);
+				if (ct.IsCancellationRequested)
+				{
+					// hook 側が ct を観測せず完走した場合でも、ロード済み entry を漏らさず巻き戻す
+					await DiscardEntryAsync(newEntry);
+				}
 				ct.ThrowIfCancellationRequested();
 
 				// 完走必須ゾーン
@@ -659,10 +672,15 @@ namespace ScreenFramework
 			await presenter.OnInitialize(ct);
 			var handle = id.CreateHandle(_services);
 
+			var loadStarted = false;
+			UniTask<IScreenViewInstance> loadTask = default;
 			try
 			{
-				// 並列起動: Presenter.OnBeforeLoad / handle.Load / Effect.OnBeforeLoad
-				var loadTask = handle.Load(progress: null, ct);
+				// 並列起動: Presenter.OnBeforeLoad / handle.Load / Effect.OnBeforeLoad。
+				// Preserve は preload 側が先に失敗した場合に catch 側で load の決着を待ち直すため
+				// （UniTask は通常 1 回しか await できない）。
+				loadTask = handle.Load(progress: null, ct).Preserve();
+				loadStarted = true;
 				var preloadTask = presenter.OnBeforeLoad(pushStore, ctx, ct);
 				var effectBeforeLoad = effect?.OnBeforeLoad(loadZone, ct) ?? UniTask.CompletedTask;
 				await UniTask.WhenAll(preloadTask, effectBeforeLoad);
@@ -684,6 +702,13 @@ namespace ScreenFramework
 			}
 			catch
 			{
+				// 走行中の load を放置したまま Unload すると競合する（ロード完了後に
+				// インスタンスが設定されて解放漏れになり得る）ので、先に load の決着を待つ。
+				if (loadStarted)
+				{
+					try { await loadTask; }
+					catch { /* cleanup */ }
+				}
 				try { await handle.Unload(CancellationToken.None); }
 				catch { /* cleanup */ }
 				try { await presenter.OnAfterUnload(pushStore, CancellationToken.None); }
@@ -742,7 +767,70 @@ namespace ScreenFramework
 				}
 				_live.RemoveAt(i);
 			}
-			_history.Edit(e => e.Clear());
+			// _live はこのループで同期済みなので、同期編集（EditHistorySynced）を介さず直接消す
+			_history.ClearBelow();
+		}
+
+		/// <summary>
+		/// <see cref="IScreenHistory.Edit"/> の実体。履歴と _live を同じ形に保ったまま編集する。
+		/// 挿入行は dormant（LiveEntry null）として入り、削除・差し替えで履歴から外れた行に
+		/// 生きたインスタンスがあれば Exit 演出・Exit hook なしで即 Unload する
+		/// （Edit は同期 API のため、Unload と OnAfterUnload は投げっぱなしで行う）。
+		/// 履歴が空のときは従来どおり編集を適用しない（Current が無い状態で行だけ増やすと
+		/// top が dormant になり遷移操作の前提が壊れるため）。
+		/// </summary>
+		void EditHistorySynced(Action<IScreenHistoryEditor> action)
+		{
+			if (_history.Count == 0)
+			{
+				action(new SyncedHistoryEditor());
+				return;
+			}
+
+			var editor = new SyncedHistoryEditor();
+			for (var i = 0; i < _history.Count - 1; i++)
+			{
+				editor.Ids.Add(_history[i]);
+				editor.Lives.Add(_live[i]);
+			}
+
+			action(editor);
+
+			var currentLive = _live[_live.Count - 1];
+			_history.RebuildBelow(editor.Ids);
+			_live.Clear();
+			_live.AddRange(editor.Lives);
+			_live.Add(currentLive);
+
+			foreach (var removed in editor.Removed)
+			{
+				CleanupDetachedEntry(removed);
+			}
+		}
+
+		/// <summary>
+		/// History.Edit で履歴から外された生き残り entry の後始末。
+		/// Exit 演出・Exit hook は呼ばず、blocker 破棄と awaiter キャンセルだけ同期で済ませて
+		/// Unload / OnAfterUnload を投げっぱなしで行う。
+		/// </summary>
+		void CleanupDetachedEntry(LiveEntry entry)
+		{
+			DestroyBlockerIfAny(entry);
+			entry.ResultSource?.TrySetCanceled();
+			entry.ResultSource = null;
+			DiscardEntryAsync(entry).Forget();
+		}
+
+		/// <summary>
+		/// ライフサイクルに乗らないまま手放す entry を Unload し、OnAfterUnload で
+		/// 画面側に購読補償の機会を与える。後始末中のエラーはログに留める。
+		/// </summary>
+		static async UniTask DiscardEntryAsync(LiveEntry entry)
+		{
+			try { await entry.Handle.Unload(CancellationToken.None); }
+			catch (Exception e) { Debug.LogException(e); }
+			try { await entry.Presenter.OnAfterUnload(entry.PushPayload ?? new NavigationDataStore(), CancellationToken.None); }
+			catch (Exception e) { Debug.LogException(e); }
 		}
 
 		ScreenCacheMode ResolveCacheMode(IScreenIdentifier id, ScreenCacheMode? cacheOverride)
@@ -797,11 +885,19 @@ namespace ScreenFramework
 			entry.ModalBlocker = null;
 		}
 
+		// 観測側（アナリティクス等）の例外で遷移本筋を殺さない。
+		// 特に FireEnd は finally から呼ばれるため、素通しすると元の例外を握り潰してしまう。
 		void FireStart(IScreenIdentifier from, IScreenIdentifier to, ScreenTransitionKind kind)
-			=> OnTransitionStart?.Invoke(new ScreenTransitionEvent(from, to, kind));
+		{
+			try { OnTransitionStart?.Invoke(new ScreenTransitionEvent(from, to, kind)); }
+			catch (Exception e) { Debug.LogException(e); }
+		}
 
 		void FireEnd(IScreenIdentifier from, IScreenIdentifier to, ScreenTransitionKind kind)
-			=> OnTransitionEnd?.Invoke(new ScreenTransitionEvent(from, to, kind));
+		{
+			try { OnTransitionEnd?.Invoke(new ScreenTransitionEvent(from, to, kind)); }
+			catch (Exception e) { Debug.LogException(e); }
+		}
 
 		sealed class ScreenEntry : IScreenEntry
 		{
@@ -830,6 +926,95 @@ namespace ScreenFramework
 			public GameObject ModalBlocker;
 			public NavigationDataStore PushPayload;
 			public UniTaskCompletionSource<INavigationDataReader> ResultSource;
+		}
+
+		/// <summary>
+		/// <see cref="EditHistorySynced"/> 用のエディタ。Identifier 列と LiveEntry 列を常に同じ形に保ち、
+		/// 編集で外れた生き残り LiveEntry を <see cref="Removed"/> に集める。
+		/// <see cref="IScreenHistoryEditor.Stack"/> 経由の素の IList 操作も全て同期される。
+		/// </summary>
+		sealed class SyncedHistoryEditor : IScreenHistoryEditor
+		{
+			public readonly List<IScreenIdentifier> Ids = new();
+			public readonly List<LiveEntry> Lives = new();
+			public readonly List<LiveEntry> Removed = new();
+
+			StackView _stackView;
+			public IList<IScreenIdentifier> Stack => _stackView ??= new StackView(this);
+
+			public void Clear()
+			{
+				for (var i = Ids.Count - 1; i >= 0; i--) RemoveRowAt(i);
+			}
+
+			public void RemoveAt(int index) => RemoveRowAt(index);
+
+			public void RemoveAll(Predicate<IScreenIdentifier> match)
+			{
+				for (var i = Ids.Count - 1; i >= 0; i--)
+				{
+					if (match(Ids[i])) RemoveRowAt(i);
+				}
+			}
+
+			public void Insert(int index, IScreenIdentifier id) => InsertRowAt(index, id);
+
+			void RemoveRowAt(int index)
+			{
+				if (Lives[index] != null) Removed.Add(Lives[index]);
+				Ids.RemoveAt(index);
+				Lives.RemoveAt(index);
+			}
+
+			void InsertRowAt(int index, IScreenIdentifier id)
+			{
+				Ids.Insert(index, id);
+				Lives.Insert(index, null);
+			}
+
+			void ReplaceRowAt(int index, IScreenIdentifier id)
+			{
+				// Identifier の差し替えは別画面化なので、元の生き残りインスタンスは破棄対象に回す
+				if (Lives[index] != null)
+				{
+					Removed.Add(Lives[index]);
+					Lives[index] = null;
+				}
+				Ids[index] = id;
+			}
+
+			sealed class StackView : IList<IScreenIdentifier>
+			{
+				readonly SyncedHistoryEditor _editor;
+				public StackView(SyncedHistoryEditor editor) { _editor = editor; }
+
+				public IScreenIdentifier this[int index]
+				{
+					get => _editor.Ids[index];
+					set => _editor.ReplaceRowAt(index, value);
+				}
+
+				public int Count => _editor.Ids.Count;
+				public bool IsReadOnly => false;
+				public void Add(IScreenIdentifier id) => _editor.InsertRowAt(_editor.Ids.Count, id);
+				public void Clear() => _editor.Clear();
+				public bool Contains(IScreenIdentifier id) => _editor.Ids.Contains(id);
+				public void CopyTo(IScreenIdentifier[] array, int arrayIndex) => _editor.Ids.CopyTo(array, arrayIndex);
+				public IEnumerator<IScreenIdentifier> GetEnumerator() => _editor.Ids.GetEnumerator();
+				public int IndexOf(IScreenIdentifier id) => _editor.Ids.IndexOf(id);
+				public void Insert(int index, IScreenIdentifier id) => _editor.InsertRowAt(index, id);
+
+				public bool Remove(IScreenIdentifier id)
+				{
+					var index = _editor.Ids.IndexOf(id);
+					if (index < 0) return false;
+					_editor.RemoveRowAt(index);
+					return true;
+				}
+
+				public void RemoveAt(int index) => _editor.RemoveRowAt(index);
+				System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+			}
 		}
 	}
 }

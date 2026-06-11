@@ -9,8 +9,10 @@ namespace ScreenFramework
 	/// <b>同じレイヤー</b>の遷移 API（Push/Pop/Replace/Change/Reset/PopTo/Close）を <c>await</c> すると
 	/// <b>恒久デッドロック</b>する。各遷移は直前の遷移の完了を待つ設計（FIFO + preempt）なので、
 	/// 新しい遷移は現在の遷移（＝その hook を待っている）の完了を待ち、相互待ちになるため。
-	/// hook 内でリダイレクトしたい場合は <c>await</c> せず <c>.Forget()</c> で発行すること
-	/// （現在の遷移が完了した後に実行される）。別レイヤーへの遷移は await して構わない。
+	/// hook 内でリダイレクトしたい場合は <c>await</c> せず
+	/// <see cref="ScreenNavigatorRedirectExtensions.Redirect(Cysharp.Threading.Tasks.UniTask)"/>
+	/// （＝意図を明示した <c>.Forget()</c>）で発行すること（現在の遷移が完了した後に実行される）。
+	/// 別レイヤーへの遷移は await して構わない。
 	/// </remarks>
 	public interface IScreenNavigator
 	{

@@ -14,6 +14,19 @@ namespace ScreenFramework
 		readonly ScreenHistory _history = new();
 		readonly List<LiveEntry> _live = new();   // parallel to _history; null = dormant
 
+		// 画面ビュー／ModalBlocker の親。config.Camera 指定時はこのレイヤー専用に動的生成した Canvas、
+		// 未指定時は従来どおり config.Container.Root（Canvas はシーン側）。
+		readonly Transform _layerRoot;
+
+		// config.Camera 指定時 true。このとき各画面（自前 Canvas を持つ）と ModalBlocker の重なりを
+		// sibling 順ではなく sortingOrder で制御する（nested canvas は sibling 順を無視するため）。
+		readonly bool _ownLayerCanvas;
+
+		// 同一レイヤー内で画面 1 枚ごとに割り当てる sortingOrder の刻み。
+		// 画面は base+index*step、その ModalBlocker は直下（step-1 の隙間）に敷く。
+		// レイヤー間の sortingOrder 差（ScreenLayerConfig.SortingOrder の間隔）÷step が 1 レイヤーの最大積み枚数。
+		const int ScreenSortingStep = 2;
+
 		// Preempt 用：FIFO チェーンの全 pending CTS と最新の完了シグナル。
 		// UniTask は単一 await 設計のため、複数の後続が完了を観測できるよう
 		// UniTaskCompletionSource を完了シグナルとして使う。
@@ -35,6 +48,34 @@ namespace ScreenFramework
 			// History.Edit は _live と同期して編集する必要がある（履歴だけ書き換わると
 			// 平行リストの不変条件が壊れ、以後の Pop が別画面を復元する）ため Navigator 側で実装する。
 			_history.EditOverride = EditHistorySynced;
+			_ownLayerCanvas = config.Camera != null;
+			_layerRoot = CreateLayerRoot(config);
+		}
+
+		/// <summary>
+		/// config.Camera 指定時、レイヤー専用 Canvas（ScreenSpaceCamera・指定カメラ・指定 sortingOrder）を
+		/// Container.Root 配下に動的生成して返す。未指定時は Container.Root をそのまま返す（従来動作）。
+		/// 画面プレハブ側が自前 Canvas を持つ場合、このレイヤー Canvas を親に nested canvas として正しく並ぶ。
+		/// </summary>
+		static Transform CreateLayerRoot(ScreenLayerConfig config)
+		{
+			var containerRoot = config.Container?.Root;
+			if (config.Camera == null) return containerRoot;
+
+			// Canvas を持つ GameObject は RectTransform が自動付与される。
+			var go = new GameObject("ScreenFramework.LayerCanvas", typeof(Canvas), typeof(GraphicRaycaster));
+			var rt = (RectTransform)go.transform;
+			if (containerRoot != null) rt.SetParent(containerRoot, worldPositionStays: false);
+			rt.anchorMin = Vector2.zero;
+			rt.anchorMax = Vector2.one;
+			rt.offsetMin = Vector2.zero;
+			rt.offsetMax = Vector2.zero;
+
+			var canvas = go.GetComponent<Canvas>();
+			canvas.renderMode = RenderMode.ScreenSpaceCamera;
+			canvas.worldCamera = config.Camera;
+			canvas.sortingOrder = config.SortingOrder;
+			return rt;
 		}
 
 		// ===========================================================================
@@ -259,6 +300,7 @@ namespace ScreenFramework
 			{
 				myCts.Token.ThrowIfCancellationRequested();
 				await body(myCts.Token);
+				ReapplyScreenSorting();
 				myDone.TrySetResult();
 			}
 			catch (OperationCanceledException)
@@ -402,7 +444,7 @@ namespace ScreenFramework
 
 				if (ShouldCreateBlocker(entry.Modal) && _live.Count > 0)
 				{
-					entry.ModalBlocker = CreateModalBlocker(_config.Container.Root);
+					entry.ModalBlocker = CreateModalBlocker(_layerRoot);
 				}
 
 				await EnterNewTopAsync(entry, effect, ctx, safeCt);
@@ -447,7 +489,7 @@ namespace ScreenFramework
 					var belowId = _history[belowIndex];
 					// 復元 load は Exit より後 = 完走必須ゾーン。Load hook も Commit で呼ぶ。
 					below = await CreateAndPreloadAsync(belowId, pushStore: new NavigationDataStore(), ctx, effect, EffectZone.Commit, safeCt);
-					below.View.SetParent(_config.Container.Root);
+					below.View.SetParent(_layerRoot);
 					below.View.SetActive(true);
 					_live[belowIndex] = below;
 					belowReappears = true;
@@ -523,7 +565,7 @@ namespace ScreenFramework
 						var belowId = _history[belowIndex];
 						// 復元 load は Exit より後 = 完走必須ゾーン。
 						below = await CreateAndPreloadAsync(belowId, pushStore: new NavigationDataStore(), ctx, effect, EffectZone.Commit, safeCt);
-						below.View.SetParent(_config.Container.Root);
+						below.View.SetParent(_layerRoot);
 						below.View.SetActive(true);
 						_live[belowIndex] = below;
 						belowReappears = true;
@@ -600,7 +642,7 @@ namespace ScreenFramework
 				newEntry.Modal = ResolveModal(opt.ModalOverride);
 				if (ShouldCreateBlocker(newEntry.Modal) && _live.Count >= 2)
 				{
-					newEntry.ModalBlocker = CreateModalBlocker(_config.Container.Root);
+					newEntry.ModalBlocker = CreateModalBlocker(_layerRoot);
 				}
 
 				_live[_live.Count - 1] = newEntry;
@@ -899,7 +941,7 @@ namespace ScreenFramework
 		/// </summary>
 		async UniTask EnterNewTopAsync(LiveEntry entry, EffectRunner effect, ITransitionContext ctx, CancellationToken safeCt)
 		{
-			entry.View.SetParent(_config.Container.Root);
+			entry.View.SetParent(_layerRoot);
 			entry.View.SetActive(true);
 
 			await WhenBoth(
@@ -974,7 +1016,55 @@ namespace ScreenFramework
 			var img = go.GetComponent<Image>();
 			img.color = new Color(0f, 0f, 0f, 0f);
 			img.raycastTarget = true;
+			if (_ownLayerCanvas)
+			{
+				// 画面が自前 Canvas を持つ世界では sibling 順が効かないので、blocker にも自前 Canvas を持たせ、
+				// sortingOrder で所属画面の直下に敷く（実際の値は ReapplyScreenSorting が振る）。
+				var canvas = go.AddComponent<Canvas>();
+				canvas.overrideSorting = true;
+				go.AddComponent<GraphicRaycaster>();
+			}
 			return go;
+		}
+
+		/// <summary>
+		/// レイヤー Canvas を自前生成している場合のみ、各画面（自前 Canvas を持つもの）と
+		/// その ModalBlocker の sortingOrder をスタック位置に応じて振り直す。各操作完了時に <see cref="Run"/> から呼ぶ。
+		/// 自前 Canvas を持たない画面・mock view は対象外（レイヤー Canvas 直下の sibling 順のまま）。
+		/// </summary>
+		void ReapplyScreenSorting()
+		{
+			if (!_ownLayerCanvas) return;
+			var baseOrder = _config.SortingOrder;
+			for (var i = 0; i < _live.Count; i++)
+			{
+				var entry = _live[i];
+				if (entry == null) continue;
+				var screenOrder = baseOrder + i * ScreenSortingStep;
+
+				var canvas = GetViewCanvas(entry);
+				if (canvas != null)
+				{
+					canvas.overrideSorting = true;
+					canvas.sortingOrder = screenOrder;
+				}
+
+				if (entry.ModalBlocker != null)
+				{
+					var blockerCanvas = entry.ModalBlocker.GetComponent<Canvas>();
+					if (blockerCanvas != null)
+					{
+						blockerCanvas.overrideSorting = true;
+						blockerCanvas.sortingOrder = screenOrder - 1; // 所属画面の直下
+					}
+				}
+			}
+		}
+
+		static Canvas GetViewCanvas(LiveEntry entry)
+		{
+			var go = entry.View?.As<GameObject>();
+			return go != null ? go.GetComponent<Canvas>() : null;
 		}
 
 		void DestroyBlockerIfAny(LiveEntry entry)

@@ -22,6 +22,11 @@ namespace Sample
 		[SerializeField] EffectRegistry _pageEffectRegistry;
 		[SerializeField] bool _startWithProfile;
 
+		// 指定するとレイヤーごとに ScreenSpaceCamera の Canvas を動的生成し、Page < Dialog < SystemDialog の
+		// sortingOrder で重ねる（Dialog レイヤーの Shield が Page を Canvas 優先度で遮断できる）。
+		// 未指定なら従来どおりシーンの単一 Canvas をそのまま使う。
+		[SerializeField] Camera _uiCamera;
+
 		// デフォルト Effect の bundle を起動時に常駐させておく簡易ウォーマ。握りっぱなしにするため field で保持。
 		readonly EffectWarmer _effectWarmer = new();
 
@@ -49,6 +54,8 @@ namespace Sample
 					DefaultModal = true,
 					Registry = _pageEffectRegistry,
 					EffectRoot = _effectRoot,
+					Camera = _uiCamera,
+					SortingOrder = 0,
 				},
 				Dialog = new ScreenLayerConfig
 				{
@@ -61,6 +68,8 @@ namespace Sample
 					StackMode = StackMode.Cover,
 					StackInputPolicy = StackInputPolicy.BlockUnderlying,
 					DefaultModal = true,
+					Camera = _uiCamera,
+					SortingOrder = 100,
 				},
 				SystemDialog = new ScreenLayerConfig
 				{
@@ -69,6 +78,8 @@ namespace Sample
 					StackMode = StackMode.Stack,
 					StackInputPolicy = StackInputPolicy.BlockUnderlying,
 					DefaultModal = true,
+					Camera = _uiCamera,
+					SortingOrder = 200,
 				},
 			};
 

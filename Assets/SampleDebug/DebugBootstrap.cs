@@ -22,6 +22,10 @@ namespace Sample.Debug
 		[SerializeField] Transform _effectRoot;
 		[SerializeField] EffectRegistry _pageEffectRegistry;
 
+		// SampleBootstrap と同じ。指定するとレイヤーごとに ScreenSpaceCamera の Canvas を動的生成する。
+		// 未指定なら従来どおりシーンの単一 Canvas を使う。
+		[SerializeField] Camera _uiCamera;
+
 		// SampleBootstrap と同じく bundle 常駐用に field で保持。
 		readonly EffectWarmer _effectWarmer = new();
 
@@ -40,36 +44,9 @@ namespace Sample.Debug
 
 			FillCrossScreenState(registry);
 
-			var setup = new ScreenLayerSetup
-			{
-				Page = new ScreenLayerConfig
-				{
-					Container = _pageContainer,
-					DefaultCacheMode = ScreenCacheMode.DestroyOnCover,
-					StackMode = StackMode.Cover,
-					StackInputPolicy = StackInputPolicy.BlockUnderlying,
-					DefaultModal = true,
-					Registry = _pageEffectRegistry,
-					EffectRoot = _effectRoot,
-				},
-				Dialog = new ScreenLayerConfig
-				{
-					Container = _dialogContainer,
-					// SampleBootstrap と同じ理由（ダイアログからダイアログを開いた時の awaiter 死亡回避）。
-					DefaultCacheMode = ScreenCacheMode.KeepOnCover,
-					StackMode = StackMode.Cover,
-					StackInputPolicy = StackInputPolicy.BlockUnderlying,
-					DefaultModal = true,
-				},
-				SystemDialog = new ScreenLayerConfig
-				{
-					Container = _sysDialogContainer,
-					DefaultCacheMode = ScreenCacheMode.DestroyOnCover,
-					StackMode = StackMode.Stack,
-					StackInputPolicy = StackInputPolicy.BlockUnderlying,
-					DefaultModal = true,
-				},
-			};
+			var setup = SampleScreenLayers.Create(
+				_pageContainer, _dialogContainer, _sysDialogContainer,
+				_effectRoot, _pageEffectRegistry, _uiCamera);
 
 			ScreenNavigator.Initialize(registry, setup);
 			_effectWarmer.WarmDefaults(_pageEffectRegistry).Forget();

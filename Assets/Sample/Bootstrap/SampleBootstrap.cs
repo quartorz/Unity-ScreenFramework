@@ -43,45 +43,9 @@ namespace Sample
 				master: new MasterService(userData));
 			var registry = new SampleRegistry(useMockViews: false, api, userData);
 
-			var setup = new ScreenLayerSetup
-			{
-				Page = new ScreenLayerConfig
-				{
-					Container = _pageContainer,
-					DefaultCacheMode = ScreenCacheMode.DestroyOnCover,
-					StackMode = StackMode.Cover,
-					StackInputPolicy = StackInputPolicy.BlockUnderlying,
-					DefaultModal = true,
-					Registry = _pageEffectRegistry,
-					EffectRoot = _effectRoot,
-					Camera = _uiCamera,
-					SortingOrder = 0,
-				},
-				Dialog = new ScreenLayerConfig
-				{
-					Container = _dialogContainer,
-					// Cover + DestroyOnCover だと PushAndAwait 中のダイアログから別ダイアログを開いた瞬間、
-					// 下のダイアログの awaiter が TrySetCanceled → OCE で死ぬ(framework 仕様)。
-					// 「ダイアログからダイアログ」は普通の要求なので KeepOnCover で寝かせて、
-					// 上が閉じたら自分の Pop で正常 resolve させる。
-					DefaultCacheMode = ScreenCacheMode.KeepOnCover,
-					StackMode = StackMode.Cover,
-					StackInputPolicy = StackInputPolicy.BlockUnderlying,
-					DefaultModal = true,
-					Camera = _uiCamera,
-					SortingOrder = 100,
-				},
-				SystemDialog = new ScreenLayerConfig
-				{
-					Container = _sysDialogContainer,
-					DefaultCacheMode = ScreenCacheMode.DestroyOnCover,
-					StackMode = StackMode.Stack,
-					StackInputPolicy = StackInputPolicy.BlockUnderlying,
-					DefaultModal = true,
-					Camera = _uiCamera,
-					SortingOrder = 200,
-				},
-			};
+			var setup = SampleScreenLayers.Create(
+				_pageContainer, _dialogContainer, _sysDialogContainer,
+				_effectRoot, _pageEffectRegistry, _uiCamera);
 
 			ScreenNavigator.Initialize(registry, setup);
 

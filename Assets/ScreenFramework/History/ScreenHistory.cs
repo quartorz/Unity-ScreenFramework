@@ -43,11 +43,47 @@ namespace ScreenFramework
 
 		internal void ClearAll() => _stack.Clear();
 
+		/// <summary>
+		/// Current を残して下を全部消す。Navigator の複合操作（Change）用。
+		/// 並走する LiveEntry 側の同期は呼び出し側の責任。
+		/// </summary>
+		internal void ClearBelow()
+		{
+			if (_stack.Count <= 1) return;
+			var current = _stack[_stack.Count - 1];
+			_stack.Clear();
+			_stack.Add(current);
+		}
+
+		/// <summary>
+		/// Current より下を <paramref name="below"/> で置き換える。
+		/// <see cref="EditOverride"/> 経由の同期編集（Navigator 側）から呼ばれる。
+		/// </summary>
+		internal void RebuildBelow(IReadOnlyList<IScreenIdentifier> below)
+		{
+			if (_stack.Count == 0) return;
+			var current = _stack[_stack.Count - 1];
+			_stack.Clear();
+			for (var i = 0; i < below.Count; i++) _stack.Add(below[i]);
+			_stack.Add(current);
+		}
+
 		// ---- 無音編集 ----
+
+		/// <summary>
+		/// 設定されている場合、<see cref="Edit"/> はこの delegate に委譲される。
+		/// Navigator が履歴と並走する LiveEntry リストを同期編集するために差し込む。
+		/// </summary>
+		internal Action<Action<IScreenHistoryEditor>> EditOverride;
 
 		public void Edit(Action<IScreenHistoryEditor> action)
 		{
 			if (action == null) throw new ArgumentNullException(nameof(action));
+			if (EditOverride != null)
+			{
+				EditOverride(action);
+				return;
+			}
 			lock (_lock)
 			{
 				if (_stack.Count == 0)

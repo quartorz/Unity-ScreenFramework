@@ -132,6 +132,26 @@ namespace Tests.ScreenFramework
 			Assert.AreEqual("b", top!.UserId);
 		});
 
+		[UnityTest]
+		public IEnumerator History_Edit_ThenPop_RestoresCorrectScreen() => UniTask.ToCoroutine(async () =>
+		{
+			await ScreenNavigator.Page.Push(new HomeScreenId());
+			await ScreenNavigator.Page.Push(new ProfileScreenId("a"));
+			await ScreenNavigator.Page.Push(new ProfileScreenId("b"));
+
+			ScreenNavigator.Page.History.Edit(e =>
+			{
+				e.RemoveAll(id => id is ProfileScreenId { UserId: "a" });
+			});
+
+			// Edit 後も履歴と内部の生存リストが整合していて、Pop で正しい画面（Home）に戻れる
+			await ScreenNavigator.Page.Pop();
+
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count);
+			Assert.IsInstanceOf<HomeScreenId>(ScreenNavigator.Page.Current);
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+		});
+
 		// ---- ヘルパー ----
 
 		static IScreenContainer NewContainer(string name)

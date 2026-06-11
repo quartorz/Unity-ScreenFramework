@@ -29,9 +29,29 @@ namespace ScreenFramework
 			if (setup.Dialog == null) throw new ArgumentException("Dialog layer config is required.", nameof(setup));
 			if (setup.SystemDialog == null) throw new ArgumentException("SystemDialog layer config is required.", nameof(setup));
 
+			// 既に初期化済みなら、旧 navigator の画面群を孤児化させず、pending awaiter も解決してから差し替える。
+			// （検証で例外が出た場合は破棄しない＝ここまで来てから Shutdown する）
+			Shutdown();
+
 			Page = new ScreenNavigatorImpl(services, setup.Page);
 			Dialog = new ScreenNavigatorImpl(services, setup.Dialog);
 			SystemDialog = new ScreenNavigatorImpl(services, setup.SystemDialog);
+		}
+
+		/// <summary>
+		/// 全レイヤーを即時破棄する。各 navigator の進行中遷移をキャンセルし、保持画面を Unload、
+		/// pending な <see cref="IScreenNavigator.PushAndAwait{TResult}"/> の awaiter を
+		/// <see cref="OperationCanceledException"/> で解決し、静的参照を null に戻す。
+		/// シーン破棄や再初期化の前に呼ぶ。呼び出し後は再度 <see cref="Initialize"/> が必要。
+		/// </summary>
+		public static void Shutdown()
+		{
+			(Page as ScreenNavigatorImpl)?.Shutdown();
+			(Dialog as ScreenNavigatorImpl)?.Shutdown();
+			(SystemDialog as ScreenNavigatorImpl)?.Shutdown();
+			Page = null;
+			Dialog = null;
+			SystemDialog = null;
 		}
 
 		/// <summary>テストでの差し替え等用。</summary>

@@ -127,6 +127,48 @@ namespace Tests.ScreenFramework
 		}
 
 		[Test]
+		public async Task Pop_RevealedScreenEnterHookThrows_PopCompletes()
+		{
+			// 復帰側(below)の Enter hook も完走必須ゾーン。失敗はログに留まり Pop は中断しない。
+			// FaultyPresenter("BeforeEnter") は自分の Push 時(commit ゾーン)にも一度 throw するので 2 回 Expect する。
+			SetupNavigator(ScreenCacheMode.KeepOnCover);
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at BeforeEnter"));
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at BeforeEnter"));
+
+			var presenterA = new FaultyPresenter("BeforeEnter");
+			var idA = new ControllableScreenId(new InstantHandle(), () => presenterA);
+			await ScreenNavigator.Page.Push(idA);
+			await ScreenNavigator.Page.Push(new MarkerScreenId("B"));
+
+			await ScreenNavigator.Page.Pop();
+
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count);
+			Assert.AreSame(idA, ScreenNavigator.Page.Current, "復帰側の Enter hook の失敗で Pop が中断しない");
+			CollectionAssert.Contains(presenterA.Events, "Resume", "Enter hook より前の Resume は通常どおり走っている");
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+		}
+
+		[Test]
+		public async Task Pop_RevealedScreenPlayEnterThrows_PopCompletes()
+		{
+			// DestroyOnCover: A は Pop で復元され、復帰演出(PlayEnter)が走る。演出の失敗で Pop は中断しない。
+			// 初回 Push 時の PlayEnter でも一度 throw するので 2 回 Expect する。
+			SetupNavigator();
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at PlayEnter"));
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at PlayEnter"));
+
+			var idA = new ControllableScreenId(new WrappingHandle(new FaultyAnimView(failEnter: true)));
+			await ScreenNavigator.Page.Push(idA);
+			await ScreenNavigator.Page.Push(new MarkerScreenId("B"));
+
+			await ScreenNavigator.Page.Pop();
+
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count);
+			Assert.AreSame(idA, ScreenNavigator.Page.Current, "復帰演出の失敗で Pop が中断しない");
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+		}
+
+		[Test]
 		public async Task Pop_ConfigureThrows_Propagates_AndStackIsIntact()
 		{
 			SetupNavigator();

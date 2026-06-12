@@ -24,6 +24,12 @@ namespace ScreenFramework
 		// 遷移中に呼ばれた History.Edit は index 競合を避けるため遅延し、チェーン完了時にまとめて適用する。
 		readonly List<Action<IScreenHistoryEditor>> _deferredEdits = new();
 
+		// History.Edit の適用中フラグ。Edit callback 内からネストして Edit が呼ばれた場合、
+		// 即時適用すると外側の編集が持つスナップショット（SyncedHistoryEditor）が古くなり、
+		// 外側の適用がネスト分を巻き戻したり、ネスト側で破棄済みの LiveEntry を _live に
+		// 復活させたりするため、ネストした Edit は遅延して外側の適用完了後に処理する。
+		bool _applyingEdit;
+
 		public IScreenHistory History => _history;
 		public IScreenIdentifier Current => _history.Current;
 		public bool IsTransitioning { get; private set; }
@@ -137,7 +143,7 @@ namespace ScreenFramework
 					var closed = _history[idx];
 					FireStart(closed, to: null, ScreenTransitionKind.Close);
 					var ok = false;
-					try { await CloseMiddleAsync(idx, myCt); ok = true; }
+					try { await CloseMiddleAsync(idx, opt.Configure, myCt); ok = true; }
 					finally { FireEnd(closed, to: null, ScreenTransitionKind.Close, ok); }
 				}
 			});
@@ -332,10 +338,11 @@ namespace ScreenFramework
 				// 編集 callback から新しい遷移が発行された（IsTransitioning が立ち直った）場合、
 				// 残りをここで適用すると「遷移中は Edit を適用しない」不変条件が破れるので、
 				// そのチェーン完了時の DrainDeferredEdits に委ねる。
-				if (IsTransitioning) return;
+				// 編集適用の最中（ネスト）も同様に、外側の適用完了後の drain に委ねる。
+				if (IsTransitioning || _applyingEdit) return;
 				var action = _deferredEdits[0];
 				_deferredEdits.RemoveAt(0);
-				try { ApplyHistoryEdit(action); }
+				try { ApplyHistoryEditExclusive(action); }
 				catch (Exception e) { Debug.LogException(e); }
 			}
 		}
@@ -557,14 +564,15 @@ namespace ScreenFramework
 		}
 
 		/// <summary>
-		/// 中間エントリを黙って消す（Effect なし）。
+		/// 中間エントリを黙って消す（Effect なし）。Configure は top の Close と同じく
+		/// ctx の bag に seed され、（suspend されていない）退場 hook から ctx.Reader で読める。
 		/// </summary>
-		async UniTask CloseMiddleAsync(int idx, CancellationToken ct)
+		async UniTask CloseMiddleAsync(int idx, Action<INavigationDataWriter> configure, CancellationToken ct)
 		{
 			var entry = _live[idx];
 			var safeCt = CancellationToken.None;
 			var returnStore = new NavigationDataStore();
-			var ctx = BareContext(OperationKind.Close, _history[idx]);
+			var ctx = NewContext(OperationKind.Close, _history[idx], to: null, configure, out _);
 			await ExitPreviousAsync(entry, ScreenCacheMode.DestroyOnCover, isPop: true, effect: null, ctx, safeCt, returnStore, isNormalPop: true);
 			DestroyBlockerIfAny(entry);
 			_live.RemoveAt(idx);
@@ -941,12 +949,22 @@ namespace ScreenFramework
 		{
 			// 遷移実行中に履歴と並走する _live を書き換えると、進行中の操作が掴んでいる index が
 			// 無効化される（例: PopCore の belowIndex）。チェーンが空になってから DrainDeferredEdits で適用する。
-			if (IsTransitioning)
+			// 別の Edit の適用中（callback 内からのネスト呼び出し）も同様に遅延する。
+			if (IsTransitioning || _applyingEdit)
 			{
 				_deferredEdits.Add(action);
 				return;
 			}
-			ApplyHistoryEdit(action);
+			// 自分の適用中にネストして積まれた Edit は、自分（外側）の適用が失敗しても取りこぼさず消化する。
+			try { ApplyHistoryEditExclusive(action); }
+			finally { DrainDeferredEdits(); }
+		}
+
+		void ApplyHistoryEditExclusive(Action<IScreenHistoryEditor> action)
+		{
+			_applyingEdit = true;
+			try { ApplyHistoryEdit(action); }
+			finally { _applyingEdit = false; }
 		}
 
 		void ApplyHistoryEdit(Action<IScreenHistoryEditor> action)

@@ -23,6 +23,12 @@ namespace ScreenFramework
 		/// 後でこの画面が別画面に覆われたとき、破棄する（<see cref="ScreenCacheMode.DestroyOnCover"/>）か
 		/// 非表示で保持する（<see cref="ScreenCacheMode.KeepOnCover"/>）かを決める。
 		/// 覆う側の遷移ではなく、覆われる画面自身を Push したときの指定が効く。
+		/// <para>
+		/// <b>注意</b>: この上書きが効くのは「その Push で生成されたインスタンス」のみ。
+		/// 破棄された後に Pop で復元される場合、復元インスタンスの方針は Identifier の
+		/// CachePolicy（無ければレイヤー既定）に戻る（<see cref="Configure"/> と同じく
+		/// 復元には引き継がれない）。復元後も効かせたい方針は Identifier 側に持たせること。
+		/// </para>
 		/// </summary>
 		public ScreenCacheMode? CachePolicyOverride { get; init; }
 		public bool? ModalOverride { get; init; }

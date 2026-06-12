@@ -25,6 +25,11 @@ namespace ScreenFramework
 		/// 編集前に取ったスナップショットが古くなるため、その編集はエラーログとともに破棄される。
 		/// 編集と遷移を両方行いたい場合は、Edit を完了させてから遷移を発行する。
 		/// </para>
+		/// <para>
+		/// <b>callback 内からのネストした Edit</b>: callback 内からさらに Edit を呼んだ場合、
+		/// その編集は即時適用されず、現在の編集の適用が完了した後に順に適用される
+		/// （即時適用すると現在の編集のスナップショットが古くなるため）。
+		/// </para>
 		/// </summary>
 		void Edit(Action<IScreenHistoryEditor> action);
 	}

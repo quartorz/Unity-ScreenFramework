@@ -16,8 +16,9 @@ namespace Tests.ScreenFramework
 
 	/// <summary>
 	/// フォールトインジェクションテスト: 遷移本筋を支える周辺機構の注入点。装飾(Effect の Matcher 例外 /
-	/// EffectRoot 未設定 / prefab ロード失敗)と stage signal(publish されない待ちの timeout 決着)は
-	/// 吸収して遷移を続行する。History.Edit の遅延適用フォールト、遷移イベント購読者の例外、レイヤー間の
+	/// EffectRoot 未設定 / prefab ロード失敗 / hook の偽 OCE を含むゾーン別フォールト)と
+	/// stage signal(publish されない待ちの timeout 決着)は吸収して遷移を続行する。
+	/// History.Edit の遅延適用フォールト、遷移イベント購読者の例外(成功時・失敗時の両方)、レイヤー間の
 	/// フォールト隔離、Redirect(hook 内リダイレクト)、失敗/キャンセルされた遷移のイベント通知
 	/// (Succeeded=false)、Shutdown / Initialize の原子性と進行中遷移との競合を扱う。
 	/// commit ゾーンの例外は Debug.LogException されるので該当テストで <see cref="LogAssert.Expect"/> する。
@@ -80,6 +81,86 @@ namespace Tests.ScreenFramework
 			{
 				LogAssert.ignoreFailingMessages = false;
 				UnityEngine.Object.DestroyImmediate(effectRoot);
+			}
+		}
+
+		// ===========================================================================
+		// EffectRunner のゾーン別 OCE 取り扱い(装飾は本筋を止めない契約の境界)
+		// Addressables を介した hook 注入は EditMode では不可能なため、ロード完了後の
+		// 内部状態を Reflection で再現した runner に直接注入する(FaultInjectionFixtures.NewLoadedEffectRunner)。
+		// ===========================================================================
+
+		[Test]
+		public async Task EffectHookThrowsSpuriousOce_InRollbackZone_IsAbsorbed_AndRemainingHooksSkip()
+		{
+			// ct 起因でない偽 OCE は「装飾の失敗」であって遷移のキャンセルではない。
+			// rollback ゾーンでも吸収され(Effect は即 Destroy + disabled)、呼び出し側へ伝播しない。
+			LogAssert.Expect(LogType.Exception, new Regex("spurious OCE injected at Effect\\.OnBeforeLoad"));
+			var go = new GameObject("SpuriousOceEffect");
+			var eff = go.AddComponent<SpuriousOceEffect>();
+			try
+			{
+				var runner = NewLoadedEffectRunner(eff, NewBareTransitionContext());
+
+				await runner.OnBeforeLoad(EffectZone.Rollback, CancellationToken.None);   // throw しないのが契約
+
+				Assert.AreEqual(1, eff.BeforeLoadCalls);
+				await runner.OnAfterLoad(EffectZone.Rollback, CancellationToken.None);
+				Assert.AreEqual(0, eff.AfterLoadCalls, "偽 OCE で disabled になった後の hook は skip される");
+			}
+			finally
+			{
+				if (go != null) UnityEngine.Object.DestroyImmediate(go);
+			}
+		}
+
+		[Test]
+		public async Task EffectHookThrowsSpuriousOce_InCommitZone_IsAbsorbed_AndDestroyIsDeferredToFinish()
+		{
+			// 完走必須ゾーンの Effect 失敗は「残 hook skip のみ・Destroy は遷移完了(Finish)まで遅延」の契約。
+			LogAssert.Expect(LogType.Exception, new Regex("spurious OCE injected at Effect\\.OnBeforeLoad"));
+			var go = new GameObject("SpuriousOceEffect");
+			var eff = go.AddComponent<SpuriousOceEffect>();
+			try
+			{
+				var runner = NewLoadedEffectRunner(eff, NewBareTransitionContext());
+
+				await runner.OnBeforeLoad(EffectZone.Commit, CancellationToken.None);
+
+				Assert.IsTrue(go != null, "commit ゾーンの失敗では Destroy は遷移完了まで遅延される");
+				await runner.OnAfterLoad(EffectZone.Commit, CancellationToken.None);
+				Assert.AreEqual(0, eff.AfterLoadCalls, "失敗後の残 hook は skip される");
+
+				runner.Finish();
+				Assert.IsTrue(go == null, "Finish で遅延されていた Destroy が実行される");
+			}
+			finally
+			{
+				if (go != null) UnityEngine.Object.DestroyImmediate(go);
+			}
+		}
+
+		[Test]
+		public async Task EffectHookObservesRealCancel_InRollbackZone_OcePropagates()
+		{
+			// 本物のキャンセル(ct 起因)は巻き戻しの一部なので、rollback ゾーンでは従来どおり伝播する。
+			var go = new GameObject("CtObservingEffect");
+			var eff = go.AddComponent<CtObservingEffect>();
+			try
+			{
+				var runner = NewLoadedEffectRunner(eff, NewBareTransitionContext());
+				using var cts = new CancellationTokenSource();
+				cts.Cancel();
+
+				Exception caught = null;
+				try { await runner.OnBeforeLoad(EffectZone.Rollback, cts.Token); }
+				catch (Exception e) { caught = e; }
+
+				Assert.IsInstanceOf<OperationCanceledException>(caught, "ct 起因の OCE は rollback のため伝播する");
+			}
+			finally
+			{
+				if (go != null) UnityEngine.Object.DestroyImmediate(go);
 			}
 		}
 
@@ -268,6 +349,31 @@ namespace Tests.ScreenFramework
 			}
 		}
 
+		[Test]
+		public async Task FailedPush_EndObserverThrows_OriginalExceptionStillPropagates()
+		{
+			// OnTransitionEnd は finally から発火される。購読者の例外を素通しすると
+			// 元の失敗(load 例外)を握り潰してすり替えてしまうため、吸収されることを固定する。
+			SetupNavigator();
+			LogAssert.Expect(LogType.Exception, new Regex("observer fault at end"));
+			Action<ScreenTransitionEvent> onEnd = _ => throw new InvalidOperationException("observer fault at end");
+			ScreenNavigator.Page.OnTransitionEnd += onEnd;
+			try
+			{
+				Exception caught = null;
+				try { await ScreenNavigator.Page.Push(new ControllableScreenId(new FaultyLoadHandle())); }
+				catch (Exception e) { caught = e; }
+
+				Assert.IsInstanceOf<InvalidOperationException>(caught, "失敗した遷移の例外は購読者の例外にすり替わらない");
+				StringAssert.Contains("handle.Load", caught.Message, "伝播するのは load の失敗であって購読者の失敗ではない");
+				Assert.AreEqual(0, ScreenNavigator.Page.History.Count);
+			}
+			finally
+			{
+				ScreenNavigator.Page.OnTransitionEnd -= onEnd;
+			}
+		}
+
 		// ===========================================================================
 		// レイヤー間のフォールト隔離
 		// ===========================================================================
@@ -431,6 +537,33 @@ namespace Tests.ScreenFramework
 			var idB = new MarkerScreenId("B");
 			await ScreenNavigator.Page.Push(idB);
 			Assert.AreSame(idB, ScreenNavigator.Page.Current, "Shutdown 後の再 Initialize で通常運転に戻れる");
+		}
+
+		[Test]
+		public async Task Shutdown_DuringRollbackZonePush_PusherSettlesOce_AndLayerIsCleared()
+		{
+			// Shutdown は各レイヤーに DismissAll(Preempt)を発行する。ロード中(rollback ゾーン)の
+			// Push は殺されて補償付きで OCE 決着し、Shutdown はハングせず畳み切る。
+			SetupNavigator();
+			var nav = ScreenNavigator.Page;
+			var source = new UniTaskCompletionSource<IScreenViewInstance>();
+			var handle = new ControllableHandle(source);
+			var presenter = new TrackingPresenter();
+			var pushTask = nav.Push(new ControllableScreenId(handle, () => presenter));
+
+			var shutdownTask = ScreenNavigator.Shutdown();
+			Assert.IsNull(ScreenNavigator.Page, "静的参照は Shutdown 呼び出しと同期に外れる");
+
+			Exception caught = null;
+			try { await pushTask; }
+			catch (Exception e) { caught = e; }
+			await shutdownTask;
+
+			Assert.IsInstanceOf<OperationCanceledException>(caught, "ロード中の Push は Shutdown に preempt されて OCE で決着する");
+			Assert.IsTrue(handle.UnloadCalled, "殺されたロードは補償 Unload される");
+			Assert.IsTrue(presenter.OnAfterUnloadCalled, "破棄経路でも OnAfterUnload が呼ばれる");
+			Assert.AreEqual(0, nav.History.Count, "敗者は積まれず、レイヤーは畳み切られる");
+			Assert.IsFalse(nav.IsTransitioning);
 		}
 
 		[Test]

@@ -1,3 +1,4 @@
+using System;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Cysharp.Threading.Tasks;
@@ -176,6 +177,54 @@ namespace Tests.ScreenFramework
 			Assert.AreEqual(3, _nav.History.Count, "Push は成立し、編集は破棄される");
 			Assert.AreEqual(new MarkerScreenId("A"), _nav.History[0], "RemoveAt(0) は適用されない");
 			Assert.AreEqual(idC, _nav.Current);
+		}
+
+		[Test]
+		public async Task Edit_NestedEditInCallback_IsDeferredAndBothApply()
+		{
+			// callback 内からネストして Edit を呼ぶと、外側の編集の適用完了後に適用される。
+			// 即時適用すると外側のスナップショットが古くなり、ネスト側で破棄済みの LiveEntry が
+			// _live に復活する（unload 済みの zombie 行）か、外側の編集が誤って破棄されるかのどちらかになる。
+			var handleA = new InstantHandle();
+			var handleB = new InstantHandle();
+			await _nav.Push(new ControllableScreenId(handleA));
+			await _nav.Push(new ControllableScreenId(handleB));
+			await _nav.Push(new MarkerScreenId("top"));
+
+			_nav.History.Edit(e =>
+			{
+				e.RemoveAt(1);   // B を外す
+				_nav.History.Edit(e2 => e2.RemoveAt(0));   // ネスト: A を外す（外側の適用後に処理される）
+			});
+
+			Assert.AreEqual(1, _nav.History.Count, "外側 → ネストの順で両方の編集が適用される");
+			Assert.AreEqual(new MarkerScreenId("top"), _nav.Current);
+			Assert.IsTrue(handleB.UnloadCalled, "外側の編集で外れた B は Unload される");
+			Assert.IsTrue(handleA.UnloadCalled, "ネストした編集で外れた A も Unload される");
+		}
+
+		[Test]
+		public async Task Edit_NestedEditThrows_OuterStillApplies_AndNestedFaultIsLogged()
+		{
+			// ネストした編集は遅延消化されるため、その例外は外側の Edit 呼び出しへは伝播せず
+			// ログに留まる（遷移中に遅延された Edit の例外と同じ扱い）。外側の編集は壊れない。
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at nested Edit"));
+			var handleA = new InstantHandle();
+			await _nav.Push(new ControllableScreenId(handleA));
+			await _nav.Push(new MarkerScreenId("top"));
+
+			_nav.History.Edit(e =>
+			{
+				e.RemoveAt(0);
+				_nav.History.Edit(_ => throw new InvalidOperationException("fault injected at nested Edit"));
+			});
+
+			Assert.AreEqual(1, _nav.History.Count, "ネストした編集の失敗で外側の編集は壊れない");
+			Assert.IsTrue(handleA.UnloadCalled);
+
+			// フォールト後も以後の編集は通常どおり成立する
+			_nav.History.Edit(e => e.Insert(0, new MarkerScreenId("inserted")));
+			Assert.AreEqual(2, _nav.History.Count);
 		}
 	}
 }

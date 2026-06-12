@@ -128,7 +128,7 @@ namespace ScreenFramework
 			{
 				await hook(_ctx, ct);
 			}
-			catch (OperationCanceledException)
+			catch (OperationCanceledException) when (ct.IsCancellationRequested)
 			{
 				// preempt 等で巻き戻し中 → 即 Destroy で巻き戻し継ぎ目もない
 				DestroyNow();
@@ -137,6 +137,8 @@ namespace ScreenFramework
 			}
 			catch (Exception e)
 			{
+				// ct 起因でない OCE（hook の誤実装による偽 OCE）もここに落とす。
+				// 装飾の失敗は遷移本筋を止めない契約なので、キャンセルに化けさせず吸収する。
 				Debug.LogException(e);
 				DestroyNow();
 				_disabled = true;
@@ -190,9 +192,14 @@ namespace ScreenFramework
 					// InstantiateAsync 経由は ReleaseInstance で参照カウントを返す
 					Addressables.ReleaseInstance(_instanceGo);
 				}
-				else
+				else if (Application.isPlaying)
 				{
 					UnityEngine.Object.Destroy(_instanceGo);
+				}
+				else
+				{
+					// EditMode（テスト等）では Destroy が使えないため即時破棄する
+					UnityEngine.Object.DestroyImmediate(_instanceGo);
 				}
 				_instanceGo = null;
 				_instance = null;

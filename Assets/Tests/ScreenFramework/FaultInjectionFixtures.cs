@@ -31,6 +31,28 @@ namespace Tests.ScreenFramework
 				.SetValue(reg, new List<EffectRegistry.Row>(rows));
 			return reg;
 		}
+
+		/// <summary>
+		/// Addressables を介さず、生成済みの ScreenEffect インスタンスを掴んだ状態の EffectRunner を作る。
+		/// LoadAndInstantiateAsync 後と同じ内部状態を Reflection で再現し、
+		/// hook 実行時のゾーン別フォールト挙動（偽 OCE の吸収 / 本物のキャンセルの伝播）を単体で注入できるようにする。
+		/// </summary>
+		public static EffectRunner NewLoadedEffectRunner(ScreenEffect instance, ITransitionContext ctx)
+		{
+			var runner = new EffectRunner(prefabRef: null, parent: null, ctx);
+			const System.Reflection.BindingFlags flags =
+				System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+			typeof(EffectRunner).GetField("_instance", flags).SetValue(runner, instance);
+			typeof(EffectRunner).GetField("_instanceGo", flags).SetValue(runner, instance.gameObject);
+			return runner;
+		}
+
+		/// <summary>EffectRunner 単体テスト用の最小 ITransitionContext。</summary>
+		public static ITransitionContext NewBareTransitionContext()
+		{
+			var store = new NavigationDataStore();
+			return new TransitionContext(OperationKind.Push, from: null, to: null, store, store);
+		}
 	}
 
 	// ===========================================================================
@@ -415,6 +437,39 @@ namespace Tests.ScreenFramework
 			=> _failEnter ? throw new InvalidOperationException("fault injected at PlayEnter") : UniTask.CompletedTask;
 		public UniTask PlayExit(CancellationToken c)
 			=> _failExit ? throw new InvalidOperationException("fault injected at PlayExit") : UniTask.CompletedTask;
+	}
+
+	/// <summary>
+	/// OnBeforeLoad で外部キャンセルなしに OperationCanceledException を投げる ScreenEffect。
+	/// EffectRunner のゾーン別 OCE 取り扱い(偽 OCE は装飾失敗として吸収される契約)の注入用。
+	/// 呼出回数も記録し、失敗後の残 hook skip を観測できるようにする。
+	/// </summary>
+	internal sealed class SpuriousOceEffect : ScreenEffect
+	{
+		public int BeforeLoadCalls { get; private set; }
+		public int AfterLoadCalls { get; private set; }
+
+		public override UniTask OnBeforeLoad(ITransitionContext ctx, CancellationToken ct)
+		{
+			BeforeLoadCalls++;
+			throw new OperationCanceledException("spurious OCE injected at Effect.OnBeforeLoad");
+		}
+
+		public override UniTask OnAfterLoad(ITransitionContext ctx, CancellationToken ct)
+		{
+			AfterLoadCalls++;
+			return UniTask.CompletedTask;
+		}
+	}
+
+	/// <summary>OnBeforeLoad で ct を正しく観測して OCE を投げる行儀の良い ScreenEffect(本物のキャンセル経路の注入用)。</summary>
+	internal sealed class CtObservingEffect : ScreenEffect
+	{
+		public override UniTask OnBeforeLoad(ITransitionContext ctx, CancellationToken ct)
+		{
+			ct.ThrowIfCancellationRequested();
+			return UniTask.CompletedTask;
+		}
 	}
 
 	/// <summary>Match が必ず throw する matcher(Effect 解決失敗の注入用)。</summary>

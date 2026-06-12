@@ -14,7 +14,8 @@ namespace Tests.ScreenFramework
 	/// フォールトインジェクションテスト: 複合操作(DismissAll / Reset / Change / Replace / PopTo / Close)の注入点。
 	/// 「先ロード → 成功後に破棄」型(Reset / Change / Replace)はロード失敗時に既存スタックを丸ごと温存して
 	/// ロールバックし伝播する。破棄フェーズ(完走必須ゾーン)の hook 失敗・中間 Close の teardown 失敗は
-	/// ログに留めて操作を完走させる。ロード前のユーザーコールバック(PopTo の predicate)は伝播し、
+	/// ログに留めて操作を完走させる。伝播する例外は「先ロード」の失敗、復元ロード(PopTo / Close(top) の
+	/// 最終段。dormant top で着地)、ロード前のユーザーコールバック(PopTo の predicate / Close の Configure)。
 	/// 死んだ entry への Close は no-op。
 	/// commit ゾーンの例外は Debug.LogException されるので各テストで <see cref="LogAssert.Expect"/> する。
 	/// </summary>
@@ -246,6 +247,178 @@ namespace Tests.ScreenFramework
 			var idC = new MarkerScreenId("C");
 			await ScreenNavigator.Page.Push(idC);
 			Assert.AreSame(idC, ScreenNavigator.Page.Current, "フォールト後も次の Push が成立する");
+		}
+
+		[Test]
+		public async Task Replace_OldTopExitHookThrows_ReplaceCompletes()
+		{
+			// Replace の旧最上段退場は commit ゾーン(ロード成功後)。退場 hook の失敗で差し替えが中断しない。
+			SetupNavigator();
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at BeforeExit"));
+
+			await ScreenNavigator.Page.Push(new ControllableScreenId(new InstantHandle(), () => new FaultyPresenter("BeforeExit")));
+
+			var idB = new MarkerScreenId("B");
+			var entry = await ScreenNavigator.Page.Replace(idB);
+
+			Assert.IsNotNull(entry, "退場 hook が落ちても新画面のエントリは返る");
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count, "旧最上段の退場 hook 失敗で Replace が中断しない");
+			Assert.AreSame(idB, ScreenNavigator.Page.Current);
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+		}
+
+		[Test]
+		public async Task Change_OldTopExitHookThrows_ChangeCompletes()
+		{
+			// Change の cross-fade 退場(現最上段)も commit ゾーン。hook の失敗で単一画面化が中断しない。
+			SetupNavigator();
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at AfterExit"));
+
+			await ScreenNavigator.Page.Push(new MarkerScreenId("A"));
+			await ScreenNavigator.Page.Push(new ControllableScreenId(new InstantHandle(), () => new FaultyPresenter("AfterExit")));
+
+			var idC = new MarkerScreenId("C");
+			await ScreenNavigator.Page.Change(idC);
+
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count, "差し替え退場の hook 失敗で Change が中断しない");
+			Assert.AreSame(idC, ScreenNavigator.Page.Current);
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+		}
+
+		[Test]
+		public async Task Replace_OnEmptyStack_LoadFails_NothingChanges()
+		{
+			// 空スタックの Replace は Push 委譲経路。その rollback ゾーンの失敗も伝播 + 完全クリーンアップ。
+			SetupNavigator();
+			var handle = new FaultyLoadHandle();
+			var id = new ControllableScreenId(handle, () => new TrackingPresenter());
+
+			Exception caught = null;
+			try { await ScreenNavigator.Page.Replace(id); }
+			catch (Exception e) { caught = e; }
+
+			Assert.IsInstanceOf<InvalidOperationException>(caught, "Push 委譲経路でも load 失敗は伝播する");
+			Assert.IsTrue(handle.UnloadCalled, "失敗した load は補償 Unload される");
+			Assert.AreEqual(0, ScreenNavigator.Page.History.Count, "空スタックのまま何も残らない");
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+
+			var idB = new MarkerScreenId("B");
+			await ScreenNavigator.Page.Push(idB);
+			Assert.AreSame(idB, ScreenNavigator.Page.Current, "フォールト後も次の Push が成立する");
+		}
+
+		[Test]
+		public async Task PopTo_RestoreLoadFails_Propagates_AndNavigatorRecovers()
+		{
+			// PopTo の最終段(PopCore)の復元ロード失敗。中間破棄と top の退場は完了済みで巻き戻さず、
+			// Pop と同じ「dormant top + 伝播」契約に着地する。
+			SetupNavigator();
+			var creations = 0;
+			var idA = new ControllableScreenId(new InstantHandle(), () =>
+				++creations == 1 ? new NullPresenter() : (IScreenPresenter)new ThrowingOnBeforeLoadPresenter());
+			await ScreenNavigator.Page.Push(idA);
+			await ScreenNavigator.Page.Push(new MarkerScreenId("B"));
+			await ScreenNavigator.Page.Push(new MarkerScreenId("C"));
+
+			Exception caught = null;
+			try { await ScreenNavigator.Page.PopTo(id => ReferenceEquals(id, idA)); }
+			catch (Exception e) { caught = e; }
+
+			Assert.IsInstanceOf<InvalidOperationException>(caught, "復元ロードの失敗は PopTo でも伝播する");
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count, "中間の破棄と top の退場は完了している(巻き戻さない)");
+			Assert.AreSame(idA, ScreenNavigator.Page.Current, "履歴上の Current は A のまま(dormant)");
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+
+			var idD = new MarkerScreenId("D");
+			await ScreenNavigator.Page.Push(idD);
+			Assert.AreSame(idD, ScreenNavigator.Page.Current, "dormant top の上にも次の Push が成立する");
+			Assert.AreEqual(2, ScreenNavigator.Page.History.Count);
+		}
+
+		[Test]
+		public async Task Close_TopRestoreLoadFails_Propagates_AndNavigatorRecovers()
+		{
+			// Close(top) は Pop 相当の復元ロードを持つ。失敗時は B の退場を巻き戻さず伝播し、dormant top で着地する。
+			SetupNavigator();
+			var creations = 0;
+			var idA = new ControllableScreenId(new InstantHandle(), () =>
+				++creations == 1 ? new NullPresenter() : (IScreenPresenter)new ThrowingOnBeforeLoadPresenter());
+			await ScreenNavigator.Page.Push(idA);
+			var entryB = await ScreenNavigator.Page.Push(new MarkerScreenId("B"));
+
+			Exception caught = null;
+			try { await entryB.Close(); }
+			catch (Exception e) { caught = e; }
+
+			Assert.IsInstanceOf<InvalidOperationException>(caught, "Close(top) の復元ロード失敗も伝播する");
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count, "B の退場は完了している(巻き戻さない)");
+			Assert.AreSame(idA, ScreenNavigator.Page.Current, "履歴上の Current は A のまま(dormant)");
+			Assert.IsFalse(entryB.IsAlive, "閉じた entry は IsAlive=false");
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+
+			var idC = new MarkerScreenId("C");
+			await ScreenNavigator.Page.Push(idC);
+			Assert.AreSame(idC, ScreenNavigator.Page.Current, "dormant top の上にも次の Push が成立する");
+		}
+
+		[Test]
+		public async Task Close_TopConfigureThrows_Propagates_AndStackIsIntact()
+		{
+			SetupNavigator();
+			await ScreenNavigator.Page.Push(new MarkerScreenId("A"));
+			var presenterB = new RecordingPresenter();
+			var entryB = await ScreenNavigator.Page.Push(new ControllableScreenId(new InstantHandle(), () => presenterB));
+
+			Exception caught = null;
+			try
+			{
+				await entryB.Close(new PopOptions
+				{
+					Configure = _ => throw new InvalidOperationException("fault injected at Close Configure"),
+				});
+			}
+			catch (Exception e) { caught = e; }
+
+			Assert.IsInstanceOf<InvalidOperationException>(caught, "Close(top) の Configure の失敗は伝播する");
+			Assert.AreEqual(2, ScreenNavigator.Page.History.Count, "退場前の失敗なのでスタックは無傷");
+			Assert.IsTrue(entryB.IsAlive, "閉じられていない");
+			CollectionAssert.DoesNotContain(presenterB.Events, "BeforeExit", "Exit hook には到達していない");
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+
+			await entryB.Close();
+			Assert.IsFalse(entryB.IsAlive, "フォールト後も通常の Close が成立する");
+		}
+
+		[Test]
+		public async Task Close_MiddleConfigureThrows_Propagates_AndStackIsIntact()
+		{
+			// 中間 Close も top と同じく Configure を ctx に seed する(以前は無言で捨てられていた)。
+			// その失敗は退場前なので伝播し、スタックは無傷。
+			SetupNavigator(ScreenCacheMode.KeepOnCover);   // 中間 A を生かしたまま Close 対象にする
+			var presenterA = new TrackingPresenter();
+			var entryA = await ScreenNavigator.Page.Push(new ControllableScreenId(new InstantHandle(), () => presenterA));
+			var idB = new MarkerScreenId("B");
+			await ScreenNavigator.Page.Push(idB);
+
+			Exception caught = null;
+			try
+			{
+				await entryA.Close(new PopOptions
+				{
+					Configure = _ => throw new InvalidOperationException("fault injected at Close Configure (middle)"),
+				});
+			}
+			catch (Exception e) { caught = e; }
+
+			Assert.IsInstanceOf<InvalidOperationException>(caught, "中間 Close でも Configure は呼ばれ、失敗は伝播する");
+			Assert.AreEqual(2, ScreenNavigator.Page.History.Count, "退場前の失敗なのでスタックは無傷");
+			Assert.IsTrue(entryA.IsAlive, "閉じられていない");
+			Assert.IsFalse(presenterA.OnAfterUnloadCalled, "teardown には到達していない");
+			Assert.AreSame(idB, ScreenNavigator.Page.Current, "最上段は据え置かれる");
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+
+			await entryA.Close();
+			Assert.IsFalse(entryA.IsAlive, "フォールト後も通常の中間 Close が成立する");
 		}
 
 		[Test]

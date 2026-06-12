@@ -15,8 +15,8 @@ namespace Tests.ScreenFramework
 	/// <summary>
 	/// フォールトインジェクションテスト: PushAndAwait の決着保証。開いたダイアログが「正常 Pop / Close」で
 	/// 閉じれば結果が届き(退場 hook が落ちても結果配送は壊れない)、それ以外の閉じ方
-	/// (ロード失敗 / 外部キャンセル / preempt / Replace 上書き / DismissAll・PopTo の silent 破棄)では
-	/// 結果待ちがハングせず OperationCanceledException で決着する、の両側を検証する。
+	/// (ロード失敗 / 外部キャンセル / preempt / Replace・Change 上書き / DismissAll・Reset・PopTo の silent 破棄)
+	/// では結果待ちがハングせず OperationCanceledException で決着する、の両側を検証する。
 	/// commit ゾーンの例外は Debug.LogException されるので各テストで <see cref="LogAssert.Expect"/> する。
 	/// </summary>
 	public sealed class FaultInjectionPushAndAwaitTests : FaultInjectionTestBase
@@ -134,6 +134,45 @@ namespace Tests.ScreenFramework
 			Assert.IsInstanceOf<OperationCanceledException>(caught, "PopTo に巻き込まれた dialog の awaiter は OCE で決着する");
 			Assert.AreEqual(1, ScreenNavigator.Page.History.Count);
 			Assert.AreSame(idA, ScreenNavigator.Page.Current);
+		}
+
+		[Test]
+		public async Task PushAndAwait_SweptByChange_AwaiterGetsOce()
+		{
+			// Change は現最上段を破棄して差し替える。「正常 Pop / Close」ではないので結果は届かず OCE で決着する。
+			SetupNavigator();
+			await ScreenNavigator.Page.Push(new MarkerScreenId("Base"));
+			var resultTask = ScreenNavigator.Page.PushAndAwait(new EchoDialogId("never"));
+
+			var idX = new MarkerScreenId("X");
+			await ScreenNavigator.Page.Change(idX);
+
+			Exception caught = null;
+			try { await resultTask; }
+			catch (Exception e) { caught = e; }
+
+			Assert.IsInstanceOf<OperationCanceledException>(caught, "Change に差し替えられた dialog の awaiter は OCE で決着する");
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count);
+			Assert.AreSame(idX, ScreenNavigator.Page.Current);
+		}
+
+		[Test]
+		public async Task PushAndAwait_SweptByReset_AwaiterGetsOce()
+		{
+			SetupNavigator();
+			await ScreenNavigator.Page.Push(new MarkerScreenId("Base"));
+			var resultTask = ScreenNavigator.Page.PushAndAwait(new EchoDialogId("never"));
+
+			var idX = new MarkerScreenId("X");
+			await ScreenNavigator.Page.Reset(idX);
+
+			Exception caught = null;
+			try { await resultTask; }
+			catch (Exception e) { caught = e; }
+
+			Assert.IsInstanceOf<OperationCanceledException>(caught, "Reset で全破棄された dialog の awaiter は OCE で決着する");
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count);
+			Assert.AreSame(idX, ScreenNavigator.Page.Current);
 		}
 
 		[Test]

@@ -321,10 +321,13 @@ namespace ScreenFramework
 		/// <summary>遷移中に遅延された History.Edit を適用順に処理する。各編集の例外は遷移本筋に影響させない。</summary>
 		void DrainDeferredEdits()
 		{
-			if (_deferredEdits.Count == 0) return;
-			// 適用中に新たな Edit が積まれても取りこぼさないよう、スナップショットして消化する。
+			// 適用中に新たな Edit が積まれても取りこぼさないよう、1 件ずつ取り出して消化する。
 			while (_deferredEdits.Count > 0)
 			{
+				// 編集 callback から新しい遷移が発行された（IsTransitioning が立ち直った）場合、
+				// 残りをここで適用すると「遷移中は Edit を適用しない」不変条件が破れるので、
+				// そのチェーン完了時の DrainDeferredEdits に委ねる。
+				if (IsTransitioning) return;
 				var action = _deferredEdits[0];
 				_deferredEdits.RemoveAt(0);
 				try { ApplyHistoryEdit(action); }
@@ -509,6 +512,13 @@ namespace ScreenFramework
 					var belowId = _history[belowIndex];
 					// 復元 load は Exit より後 = 完走必須ゾーン。Load hook も Commit で呼ぶ。
 					below = await CreateAndPreloadAsync(belowId, pushStore: new NavigationDataStore(), ctx, effect, EffectZone.Commit, cacheOverride: null, safeCt);
+					// 復元画面の modal / blocker も push 時と同じ規則で再構成する（Stack モードで Edit 挿入された
+					// dormant 行が blocker なしで最上段へ戻らないように）。blocker は view より先に親付けして下に敷く。
+					below.Modal = ResolveModal(null);
+					if (ShouldCreateBlocker(below.Modal) && belowIndex > 0)
+					{
+						below.ModalBlocker = CreateModalBlocker(_config.Container.Root);
+					}
 					below.View.SetParent(_config.Container.Root);
 					below.View.SetActive(true);
 					_live[belowIndex] = below;
@@ -585,6 +595,12 @@ namespace ScreenFramework
 						var belowId = _history[belowIndex];
 						// 復元 load は Exit より後 = 完走必須ゾーン。
 						below = await CreateAndPreloadAsync(belowId, pushStore: new NavigationDataStore(), ctx, effect, EffectZone.Commit, cacheOverride: null, safeCt);
+						// 復元画面の modal / blocker も push 時と同じ規則で再構成する（PopCore と同じ）。
+						below.Modal = ResolveModal(null);
+						if (ShouldCreateBlocker(below.Modal) && belowIndex > 0)
+						{
+							below.ModalBlocker = CreateModalBlocker(_config.Container.Root);
+						}
 						below.View.SetParent(_config.Container.Root);
 						below.View.SetActive(true);
 						_live[belowIndex] = below;
@@ -943,9 +959,19 @@ namespace ScreenFramework
 				editor.Lives.Add(_live[i]);
 			}
 
+			var countBefore = _history.Count;
+			var currentLive = _live[_live.Count - 1];
 			action(editor);
 
-			var currentLive = _live[_live.Count - 1];
+			// 編集 callback の中から遷移 API が呼ばれてスタックが動いた場合（同期完了する Push 等）、
+			// editor のスナップショットは古くなっており、適用すると遷移が積んだ行が履歴から消えて
+			// LiveEntry が後始末されないままリークする。この編集は破棄してエラーに留める。
+			if (_history.Count != countBefore || !ReferenceEquals(_live[_live.Count - 1], currentLive))
+			{
+				Debug.LogError("[ScreenFramework] History.Edit の callback 内でスタックが変更されたため、この編集は適用されません。Edit の callback から遷移 API を呼ばないでください。");
+				return;
+			}
+
 			_history.RebuildBelow(editor.Ids);
 			_live.Clear();
 			_live.AddRange(editor.Lives);

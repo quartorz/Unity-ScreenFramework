@@ -206,6 +206,43 @@ namespace Tests.ScreenFramework
 			Assert.AreEqual("A", result.Text);
 		}
 
+		[Test]
+		public async Task SuspendedDialog_ClosedWithoutResume_StillDeliversResult()
+		{
+			await ScreenNavigator.Shutdown();
+
+			// KeepOnCover: 結果確定済みのダイアログ A が上に覆われて suspend され、
+			// Resume を挟まずに参照 Close される。suspended の破棄では Exit hook が走らないため、
+			// 結果は OnAfterUnload（最後の書き込みチャンス）経由で届く必要がある。
+			Object.DestroyImmediate(((MonoBehaviour)_pageContainer).gameObject);
+			_pageContainer = NewContainer("PageRoot");
+			ScreenNavigator.Initialize(new TestServices(), new ScreenLayerSetup
+			{
+				Page = NewLayer(_pageContainer),
+				Dialog = new ScreenLayerConfig
+				{
+					Container = NewContainer("DlgRoot3"),
+					DefaultCacheMode = ScreenCacheMode.KeepOnCover,
+					StackMode = StackMode.Cover,
+					StackInputPolicy = StackInputPolicy.BlockUnderlying,
+					DefaultModal = true,
+				},
+				SystemDialog = NewLayer(NewContainer("SysRoot3")),
+			});
+
+			var task = ScreenNavigator.Dialog.PushAndAwait(new EchoDialogId("kept"));
+			await UniTask.Yield();
+			var entry = ScreenNavigator.Dialog.FindEntry<EchoDialogPresenter>();
+			Assert.IsNotNull(entry, "前提: ダイアログ A が開いている");
+
+			await ScreenNavigator.Dialog.Push(new PlainScreenId()); // A は suspend される
+			await entry.Close();                                    // Resume なしの中間 Close
+
+			var result = await task;
+			Assert.IsNotNull(result, "suspended のまま閉じられても結果は届く");
+			Assert.AreEqual("kept", result.Text);
+		}
+
 		// =====================================================================
 		// 項目 6: PushAndAwait の待機部に ct は効かない(仕様)
 		// =====================================================================

@@ -20,6 +20,11 @@ namespace ScreenFramework
 		/// その遷移と連鎖する preempt / queue が全て完了した後にまとめて適用される。
 		/// 遷移の途中で履歴の並走リストを書き換えると、進行中の操作が掴んでいる index が無効化されるため。
 		/// </para>
+		/// <para>
+		/// <b>callback 内から遷移 API を呼ばないこと</b>: callback の実行中にスタックが動くと
+		/// 編集前に取ったスナップショットが古くなるため、その編集はエラーログとともに破棄される。
+		/// 編集と遷移を両方行いたい場合は、Edit を完了させてから遷移を発行する。
+		/// </para>
 		/// </summary>
 		void Edit(Action<IScreenHistoryEditor> action);
 	}

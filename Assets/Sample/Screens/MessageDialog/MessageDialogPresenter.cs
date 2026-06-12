@@ -34,7 +34,7 @@ namespace Sample.Dialogs
 			return UniTask.CompletedTask;
 		}
 
-		protected override UniTask OnAfterUnload(INavigationDataWriter writer, CancellationToken ct)
+		protected override UniTask OnAfterUnloadCore(INavigationDataWriter writer, CancellationToken ct)
 		{
 			if (In != null)
 			{

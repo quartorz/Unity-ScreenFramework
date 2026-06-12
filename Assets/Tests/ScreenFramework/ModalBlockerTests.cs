@@ -111,6 +111,25 @@ namespace Tests.ScreenFramework
 			Assert.AreEqual(0, CountBlockers(), "Modal=false に Replace すれば消える");
 		});
 
+		[UnityTest]
+		public IEnumerator Stack_Block_Modal_RestoredDormantRow_GetsBlocker() => UniTask.ToCoroutine(async () =>
+		{
+			SetupNavigator(StackMode.Stack, StackInputPolicy.BlockUnderlying, defaultModal: true);
+
+			await ScreenNavigator.Page.Push(new DummyScreenId(1));
+			await ScreenNavigator.Page.Push(new DummyScreenId(2));
+			Assert.AreEqual(1, CountBlockers());
+
+			// dormant 行（インスタンスなし）を最上段の下に挿入し、Pop の復元で最上段に戻す
+			ScreenNavigator.Page.History.Edit(e => e.Insert(1, new DummyScreenId(99)));
+			await ScreenNavigator.Page.Pop();
+			// Pop で破棄された旧 blocker の Destroy（フレーム末尾）を待ってから数える
+			await UniTask.NextFrame();
+
+			Assert.AreEqual(new DummyScreenId(99), ScreenNavigator.Page.Current);
+			Assert.AreEqual(1, CountBlockers(), "復元された画面も push 時と同じ規則で blocker を持つ");
+		});
+
 		// ---- ヘルパー ----
 
 		void SetupNavigator(StackMode stack, StackInputPolicy policy, bool defaultModal)

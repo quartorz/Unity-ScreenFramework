@@ -1,7 +1,10 @@
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Cysharp.Threading.Tasks;
 using NUnit.Framework;
 using ScreenFramework;
+using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace Tests.ScreenFramework
 {
@@ -120,6 +123,59 @@ namespace Tests.ScreenFramework
 			// チェーン完了後にまとめて適用される。
 			Assert.AreEqual(2, _nav.History.Count, "遷移完了後に Edit が適用される");
 			Assert.AreEqual(idB, _nav.History[0]);
+		}
+
+		[Test]
+		public async Task DeferredEdit_StartingAsyncTransition_DefersRemainingEdits()
+		{
+			await _nav.Push(new MarkerScreenId("A"));
+			await _nav.Push(new MarkerScreenId("B"));
+
+			// 遷移中を作って Edit を 2 件遅延させる
+			var gate = new GatedPresenter();
+			var pushBlocker = _nav.Push(new ControllableScreenId(new InstantHandle(), () => gate));
+			await gate.Started;
+
+			// 1 件目の Edit は callback から非同期ロードの Push を発行する（履歴自体は編集しない）。
+			// 2 件目の Edit はその Push の遷移が完了するまで適用されてはならない。
+			var loadSource = new UniTaskCompletionSource<IScreenViewInstance>();
+			UniTask<IScreenEntry> pushFromEdit = default;
+			_nav.History.Edit(_ => pushFromEdit = _nav.Push(new ControllableScreenId(new ControllableHandle(loadSource))));
+			_nav.History.Edit(e => e.RemoveAt(0)); // A を消す
+
+			gate.Release();
+			await pushBlocker;
+
+			Assert.IsTrue(_nav.IsTransitioning, "1 件目の Edit が発行した Push はロード待ちで遷移中");
+			Assert.AreEqual(3, _nav.History.Count, "新しい遷移中に残りの Edit を適用しない");
+
+			loadSource.TrySetResult(new NopView());
+			await pushFromEdit;
+
+			Assert.AreEqual(3, _nav.History.Count, "Push 完了で 4 行 → 残りの Edit（A 削除）で 3 行");
+			Assert.AreEqual(new MarkerScreenId("B"), _nav.History[0], "チェーン完了後に残りの Edit が適用され A が消える");
+		}
+
+		[Test]
+		public async Task Edit_CallbackStartingTransitionThatMutatesStack_IsDiscardedWithError()
+		{
+			await _nav.Push(new MarkerScreenId("A"));
+			await _nav.Push(new MarkerScreenId("B"));
+
+			LogAssert.Expect(LogType.Error, new Regex(@"History\.Edit"));
+
+			// callback 内の Push（同期完了）でスタックが動くと、編集前に取ったスナップショットが古くなり、
+			// そのまま適用すると Push が積んだ行が履歴から消えてしまう。この場合は編集の方を破棄する。
+			var idC = new MarkerScreenId("C");
+			_nav.History.Edit(e =>
+			{
+				e.RemoveAt(0);
+				_nav.Push(idC).Forget();
+			});
+
+			Assert.AreEqual(3, _nav.History.Count, "Push は成立し、編集は破棄される");
+			Assert.AreEqual(new MarkerScreenId("A"), _nav.History[0], "RemoveAt(0) は適用されない");
+			Assert.AreEqual(idC, _nav.Current);
 		}
 	}
 }

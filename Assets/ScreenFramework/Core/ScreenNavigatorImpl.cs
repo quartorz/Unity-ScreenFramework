@@ -221,6 +221,12 @@ namespace ScreenFramework
 				var ok = false;
 				try
 				{
+					// ctx 構築（= Configure の評価）は中間破棄より前に行う。Pop / Close と同じく、
+					// ユーザーコールバックの例外は破棄を一切始めずに伝播し、スタックは無傷のまま残す
+					// （最終 Pop の段（PopCore）で評価すると、Configure の例外で中間だけ破棄された
+					// 巻き戻し不能な中途半端な状態が残る）。
+					var ctx = NewContext(OperationKind.PopTo, from, to, opt.Configure, out _);
+
 					for (var i = _history.Count - 2; i > targetIndex; i--)
 					{
 						if (_live[i] != null)
@@ -232,7 +238,7 @@ namespace ScreenFramework
 						_history.RemoveAtInternal(i);
 					}
 
-					await PopCore(OperationKind.PopTo, opt.Configure, myCt);
+					await PopCore(ctx, myCt);
 					ok = true;
 				}
 				finally { FireEnd(from, Current, ScreenTransitionKind.PopTo, ok); }
@@ -491,10 +497,18 @@ namespace ScreenFramework
 		async UniTask PopCore(OperationKind kind, Action<INavigationDataWriter> configure, CancellationToken ct)
 		{
 			if (_history.Count <= 1) return;
+			// ctx 構築（= Configure の評価）は退場より前。例外はスタック無傷のまま伝播する。
+			var ctx = NewContext(kind, Current, _history[_history.Count - 2], configure, out _);
+			await PopCore(ctx, ct);
+		}
 
-			var from = Current;
-			var toId = _history[_history.Count - 2];
-			var ctx = NewContext(kind, from, toId, configure, out _);
+		/// <summary>
+		/// Pop の本体（ctx 構築済み版）。PopTo は Configure を中間破棄より前に評価する必要があるため、
+		/// 構築済みの ctx を直接渡してくる。
+		/// </summary>
+		async UniTask PopCore(ITransitionContext ctx, CancellationToken ct)
+		{
+			if (_history.Count <= 1) return;
 
 			// Pop は最初から完走必須ゾーン
 			var safeCt = CancellationToken.None;

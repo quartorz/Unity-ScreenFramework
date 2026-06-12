@@ -38,6 +38,14 @@ namespace ScreenFramework
 		/// 結果未書き込みで閉じた場合は default(TResult)、preempt や DismissAll 等で
 		/// 自分のエントリが破棄された場合は OperationCanceledException。
 		/// <para>
+		/// 「正常な閉じ方」= 自分が最上段として退場 hook を通って閉じる場合
+		/// （Pop / <see cref="Close"/> / PopTo の最終 Pop）は結果が配送される。
+		/// それ以外（preempt / Replace・Change による差し替え / DismissAll・Reset の全破棄 /
+		/// PopTo の中間としての無音破棄 / 覆われたまま破棄（cover-destroy）/
+		/// <see cref="IScreenHistory.Edit"/> による行削除 / <see cref="ScreenNavigator.Shutdown"/>）は
+		/// OperationCanceledException で決着し、どの経路でもハングしない。
+		/// </para>
+		/// <para>
 		/// <paramref name="ct"/> は Push フェーズ（ロールバック可能ゾーン）にのみ作用する。
 		/// Push が完了した後の結果待ちフェーズは ct でキャンセルできない仕様。
 		/// 結果待ちを抜けたい場合はダイアログ側を Pop / Close するか、上位レイヤーで

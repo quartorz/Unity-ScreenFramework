@@ -337,5 +337,51 @@ namespace Tests.ScreenFramework
 			CollectionAssert.Contains(presenterA.Events, "Resume");
 			Assert.AreSame(idA, ScreenNavigator.Page.Current);
 		}
+
+		[Test]
+		public async Task CreateHandleReturnsNull_PushFails_CompensationStillRuns_AndRecovers()
+		{
+			// CreateHandle が null を返す契約違反(throw する factory は既存テストで担保済み)。
+			// rollback ゾーンの失敗として伝播し、presenter 側には OnAfterUnload の補償チャンスが与えられる。
+			SetupNavigator();
+			var presenter = new TrackingPresenter();
+			var id = new ControllableScreenId(Handle: null, () => presenter);
+
+			Exception caught = null;
+			try { await ScreenNavigator.Page.Push(id); }
+			catch (Exception e) { caught = e; }
+
+			Assert.IsInstanceOf<NullReferenceException>(caught, "null handle は rollback ゾーンの失敗として伝播する");
+			Assert.IsTrue(presenter.OnAfterUnloadCalled, "handle が null でも presenter 側の補償 hook は呼ばれる");
+			Assert.AreEqual(0, ScreenNavigator.Page.History.Count, "失敗した Push は履歴に何も残さない");
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+
+			var idB = new MarkerScreenId("B");
+			await ScreenNavigator.Page.Push(idB);
+			Assert.AreSame(idB, ScreenNavigator.Page.Current, "契約違反の後も次の Push が成立する");
+		}
+
+		[Test]
+		public async Task CreatePresenterReturnsNull_PushFails_AndRecovers()
+		{
+			// CreatePresenter が null を返す契約違反。何もロードされる前(AssignServices)に失敗し、
+			// 副作用なしで伝播する。handle factory には到達しない。
+			SetupNavigator();
+			var handle = new InstantHandle();
+			var id = new ControllableScreenId(handle, () => null);
+
+			Exception caught = null;
+			try { await ScreenNavigator.Page.Push(id); }
+			catch (Exception e) { caught = e; }
+
+			Assert.IsInstanceOf<NullReferenceException>(caught, "null presenter はロード開始前の失敗として伝播する");
+			Assert.IsFalse(handle.UnloadCalled, "handle には触れていない(Load していないので補償も不要)");
+			Assert.AreEqual(0, ScreenNavigator.Page.History.Count);
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+
+			var idB = new MarkerScreenId("B");
+			await ScreenNavigator.Page.Push(idB);
+			Assert.AreSame(idB, ScreenNavigator.Page.Current, "契約違反の後も次の Push が成立する");
+		}
 	}
 }

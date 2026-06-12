@@ -439,5 +439,66 @@ namespace Tests.ScreenFramework
 			await ScreenNavigator.Page.Push(idC);
 			Assert.AreSame(idC, ScreenNavigator.Page.Current, "no-op の後も次の Push が成立する");
 		}
+
+		[Test]
+		public async Task PopTo_ConfigureThrows_Propagates_AndStackIsIntact()
+		{
+			// Configure(ctx 構築)は中間破棄より前に評価される。Pop / Close の Configure と同じく、
+			// 失敗は破棄を一切始めずに伝播し、中間画面も含めてスタックは無傷のまま残る
+			// (修正前は最終 Pop の段(PopCore)で評価していたため、Configure の例外で
+			// 中間だけ破棄された巻き戻し不能な状態が残った)。
+			SetupNavigator(ScreenCacheMode.KeepOnCover);   // 中間 B の生存を観測できるようにする
+			var idA = new MarkerScreenId("A");
+			await ScreenNavigator.Page.Push(idA);
+			var presenterB = new TrackingPresenter();
+			await ScreenNavigator.Page.Push(new ControllableScreenId(new InstantHandle(), () => presenterB));
+			var idC = new MarkerScreenId("C");
+			await ScreenNavigator.Page.Push(idC);
+
+			Exception caught = null;
+			try
+			{
+				await ScreenNavigator.Page.PopTo(id => ReferenceEquals(id, idA), new PopToOptions
+				{
+					Configure = _ => throw new InvalidOperationException("fault injected at PopTo Configure"),
+				});
+			}
+			catch (Exception e) { caught = e; }
+
+			Assert.IsInstanceOf<InvalidOperationException>(caught, "PopTo の Configure の失敗は伝播する");
+			Assert.AreEqual(3, ScreenNavigator.Page.History.Count, "破棄前の失敗なのでスタックは無傷");
+			Assert.AreSame(idC, ScreenNavigator.Page.Current);
+			Assert.IsFalse(presenterB.OnAfterUnloadCalled, "中間 B は破棄されていない");
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+
+			await ScreenNavigator.Page.PopTo(id => ReferenceEquals(id, idA));
+			Assert.AreSame(idA, ScreenNavigator.Page.Current, "フォールト後も通常の PopTo が成立する");
+		}
+
+		[Test]
+		public async Task Close_TopRevealedOnResumeThrows_CloseCompletes()
+		{
+			// Close(top) は Pop と独立の復帰経路(CloseTopAsync)を持つ。suspended の下画面の OnResume が
+			// 失敗してもログに留まり、Close は完走して Suspended が解除され、Enter hook まで進む。
+			SetupNavigator(ScreenCacheMode.KeepOnCover);
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at Resume"));
+
+			var presenterA = new FaultyPresenter("Resume");
+			var idA = new ControllableScreenId(new InstantHandle(), () => presenterA);
+			await ScreenNavigator.Page.Push(idA);
+			var entryB = await ScreenNavigator.Page.Push(new MarkerScreenId("B"));
+
+			await entryB.Close();
+
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count);
+			Assert.AreSame(idA, ScreenNavigator.Page.Current, "OnResume の失敗で Close が中断しない");
+			Assert.IsFalse(entryB.IsAlive);
+			CollectionAssert.Contains(presenterA.Events, "BeforeEnter", "Resume 失敗後も復帰側の Enter hook まで進む");
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+
+			var idC = new MarkerScreenId("C");
+			await ScreenNavigator.Page.Push(idC);
+			Assert.AreSame(idC, ScreenNavigator.Page.Current, "フォールト後も次の Push が成立する");
+		}
 	}
 }

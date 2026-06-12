@@ -226,5 +226,21 @@ namespace Tests.ScreenFramework
 			_nav.History.Edit(e => e.Insert(0, new MarkerScreenId("inserted")));
 			Assert.AreEqual(2, _nav.History.Count);
 		}
+
+		[Test]
+		public async Task Edit_OnEmptyHistory_IsNotApplied()
+		{
+			// 履歴が空のときは編集は適用されない(Current が無い状態で行だけ増やすと
+			// top が dormant になり、遷移操作の前提が壊れるため)。例外にもならない。
+			_nav.History.Edit(e => e.Insert(0, new MarkerScreenId("ghost")));
+
+			Assert.AreEqual(0, _nav.History.Count, "空履歴への編集は適用されない");
+
+			// 適用されなかった編集が以後の操作に影響しない
+			var idA = new MarkerScreenId("A");
+			await _nav.Push(idA);
+			Assert.AreEqual(1, _nav.History.Count);
+			Assert.AreEqual(idA, _nav.Current);
+		}
 	}
 }

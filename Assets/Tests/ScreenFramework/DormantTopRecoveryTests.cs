@@ -147,5 +147,39 @@ namespace Tests.ScreenFramework
 			Assert.AreSame(idA, ScreenNavigator.Page.Current, "dormant top を跨いで A に到達する");
 			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
 		}
+
+		[Test]
+		public async Task Reset_OntoDormantTop_CollapsesToNewScreen_WithoutNre()
+		{
+			// Reset の全破棄(DismissAllInternal)は dormant top(null 行)を退場なしで畳み、新画面 1 枚にする。
+			SetupNavigator();
+			var idA = await MakeDormantSingleTop();
+			Assert.AreSame(idA, ScreenNavigator.Page.Current, "前提: A は dormant top");
+
+			var idC = new MarkerScreenId("C");
+			var entry = await ScreenNavigator.Page.Reset(idC);
+
+			Assert.IsNotNull(entry, "dormant top があっても Reset は新画面のエントリを返す");
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count);
+			Assert.AreSame(idC, ScreenNavigator.Page.Current);
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+		}
+
+		[Test]
+		public async Task DismissAll_WithDormantTop_ClearsEverything_WithoutNre()
+		{
+			SetupNavigator();
+			var idA = await MakeDormantSingleTop();
+			Assert.AreSame(idA, ScreenNavigator.Page.Current, "前提: A は dormant top");
+
+			await ScreenNavigator.Page.DismissAll();
+
+			Assert.AreEqual(0, ScreenNavigator.Page.History.Count, "dormant top を含む全行が畳まれる");
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+
+			var idB = new MarkerScreenId("B");
+			await ScreenNavigator.Page.Push(idB);
+			Assert.AreSame(idB, ScreenNavigator.Page.Current, "空になった後も次の Push が成立する");
+		}
 	}
 }

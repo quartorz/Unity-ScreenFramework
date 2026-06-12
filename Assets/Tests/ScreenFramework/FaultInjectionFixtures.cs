@@ -514,4 +514,24 @@ namespace Tests.ScreenFramework
 		public override IScreenHandle CreateHandle(ScreenServices s) => new InstantHandle();
 		public override IScreenPresenter CreatePresenter(ScreenServices s) => new LastChanceEchoPresenter();
 	}
+
+	/// <summary>OnBeforeExit で結果を書き、teardown（OnAfterUnload）で throw する presenter（二重 teardown フォールト用）。</summary>
+	internal sealed class ResultThenFaultyTeardownPresenter : IScreenPresenter
+	{
+		UniTask IScreenPresenter.OnBeforeExit(INavigationDataWriter w, ITransitionContext x, CancellationToken c)
+		{
+			w.Write(new EchoResult { Text = "delivered" });
+			return UniTask.CompletedTask;
+		}
+
+		UniTask IScreenPresenter.OnAfterUnload(INavigationDataWriter w, CancellationToken c)
+			=> throw new InvalidOperationException("fault injected at AfterUnload (teardown dialog)");
+	}
+
+	/// <summary>退場で結果を書いた後、handle.Unload と OnAfterUnload の両方が落ちる、結果を返すダイアログの identifier。</summary>
+	internal sealed record DoubleTeardownFaultDialogId : ScreenIdentifier<EchoResult>
+	{
+		public override IScreenHandle CreateHandle(ScreenServices s) => new FaultyUnloadHandle();
+		public override IScreenPresenter CreatePresenter(ScreenServices s) => new ResultThenFaultyTeardownPresenter();
+	}
 }

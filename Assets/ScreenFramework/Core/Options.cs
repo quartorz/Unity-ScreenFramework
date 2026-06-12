@@ -71,6 +71,10 @@ namespace ScreenFramework
 
 	public readonly struct PopToOptions
 	{
+		/// <summary>
+		/// 遷移データ bag への書き込みコールバック（<see cref="PopOptions.Configure"/> と同じチャネル）。
+		/// 中間画面の破棄を始める前に評価され、例外はスタック無傷のまま伝播する。
+		/// </summary>
 		public Action<INavigationDataWriter> Configure { get; init; }
 		public InterruptPriority InterruptPriority { get; init; }
 	}

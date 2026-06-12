@@ -209,5 +209,65 @@ namespace Tests.ScreenFramework
 			Assert.AreEqual("last-chance", result.Text, "OnAfterUnload の書き込みが結果配送に間に合う");
 			Assert.AreEqual(1, ScreenNavigator.Page.History.Count);
 		}
+
+		[Test]
+		public async Task PushAndAwait_PoppedAsTopByPopTo_ResultIsDelivered()
+		{
+			// PopTo の最終段は通常の Pop 経路(退場 hook あり)。最上段にいる dialog が PopTo で閉じる場合は
+			// OCE ではなく結果が配送される(中間として無音破棄される場合は OCE。SweptByPopTo が対になるテスト)。
+			SetupNavigator();
+			var idA = new MarkerScreenId("A");
+			await ScreenNavigator.Page.Push(idA);
+			var resultTask = ScreenNavigator.Page.PushAndAwait(new EchoDialogId("from-popto"));
+
+			await ScreenNavigator.Page.PopTo(id => ReferenceEquals(id, idA));
+
+			var result = await resultTask;
+			Assert.IsNotNull(result, "最上段として PopTo に閉じられた dialog には結果が届く");
+			Assert.AreEqual("from-popto", result.Text);
+			Assert.AreSame(idA, ScreenNavigator.Page.Current);
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count);
+		}
+
+		[Test]
+		public async Task PushAndAwait_SweptByHistoryEdit_AwaiterGetsOce()
+		{
+			// History.Edit で履歴から外された行は Exit hook なしの teardown(CleanupDetachedEntry)に入り、
+			// 待機中の awaiter は OCE で決着する(ハングしない)。
+			SetupNavigator(ScreenCacheMode.KeepOnCover);   // dialog を生きたまま中間に埋める
+			await ScreenNavigator.Page.Push(new MarkerScreenId("Base"));
+			var resultTask = ScreenNavigator.Page.PushAndAwait(new EchoDialogId("never"));
+			var idTop = new MarkerScreenId("Top");
+			await ScreenNavigator.Page.Push(idTop);
+
+			ScreenNavigator.Page.History.Edit(e => e.RemoveAt(1));   // dialog の行を外す
+
+			Exception caught = null;
+			try { await resultTask; }
+			catch (Exception e) { caught = e; }
+
+			Assert.IsInstanceOf<OperationCanceledException>(caught, "Edit で外された dialog の awaiter は OCE で決着する");
+			Assert.AreEqual(2, ScreenNavigator.Page.History.Count);
+			Assert.AreSame(idTop, ScreenNavigator.Page.Current);
+		}
+
+		[Test]
+		public async Task PushAndAwait_TeardownUnloadAndAfterUnloadBothThrow_ResultStillDelivered()
+		{
+			// 結果の確定(TrySetResult)は teardown(handle.Unload / OnAfterUnload)の後に行われる。
+			// 両方が落ちても GuardedHook で吸収され、結果配送は壊れない。
+			SetupNavigator();
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at handle\\.Unload"));
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at AfterUnload \\(teardown dialog\\)"));
+			await ScreenNavigator.Page.Push(new MarkerScreenId("Base"));
+
+			var resultTask = ScreenNavigator.Page.PushAndAwait(new DoubleTeardownFaultDialogId());
+			await ScreenNavigator.Page.Pop();   // 正常 Pop。退場 hook は成功し、teardown が二重で落ちる
+
+			var result = await resultTask;
+			Assert.IsNotNull(result, "teardown の二重フォールトでも結果配送が壊れない");
+			Assert.AreEqual("delivered", result.Text);
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count);
+		}
 	}
 }

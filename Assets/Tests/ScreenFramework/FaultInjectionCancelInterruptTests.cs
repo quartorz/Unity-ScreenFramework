@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -519,6 +520,45 @@ namespace Tests.ScreenFramework
 			var idB = new MarkerScreenId("B");
 			await ScreenNavigator.Page.Push(idB);
 			Assert.AreSame(idB, ScreenNavigator.Page.Current, "DismissAll 後も次の Push が成立する");
+		}
+
+		[Test]
+		public async Task Preempt_QueuedOpNeverStarts_FiresNeitherStartNorEnd()
+		{
+			// 遷移イベントは「開始した遷移」に対してだけ Start / End が対で発火する。
+			// 開始前に preempt で消えた待機中の遷移は、どちらのイベントも出さない(片割れイベントが
+			// 観測側のカウントを狂わせない)。開始済みでキャンセルされた遷移は End(Succeeded=false) まで出る。
+			SetupNavigator();
+			var starts = new List<ScreenTransitionEvent>();
+			var ends = new List<ScreenTransitionEvent>();
+			ScreenNavigator.Page.OnTransitionStart += e => starts.Add(e);
+			ScreenNavigator.Page.OnTransitionEnd += e => ends.Add(e);
+
+			var source = new UniTaskCompletionSource<IScreenViewInstance>();
+			var idA = new ControllableScreenId(new ControllableHandle(source));
+			var idB = new MarkerScreenId("B");
+			var idC = new MarkerScreenId("C");
+
+			var pushA = ScreenNavigator.Page.Push(idA);   // 実行中(ロード待ち)になる
+			var pushB = ScreenNavigator.Page.Push(idB, new PushOptions { InterruptPriority = InterruptPriority.Queue });   // 待機
+			var pushC = ScreenNavigator.Page.Push(idC);   // preempt: A(実行中)と B(未開始)を両方キャンセル
+
+			Exception caughtA = null, caughtB = null;
+			try { await pushA; } catch (Exception e) { caughtA = e; }
+			try { await pushB; } catch (Exception e) { caughtB = e; }
+			await pushC;
+
+			Assert.IsInstanceOf<OperationCanceledException>(caughtA, "実行中だった A は OCE で決着する");
+			Assert.IsInstanceOf<OperationCanceledException>(caughtB, "未開始の B も OCE で決着する");
+			Assert.AreSame(idC, ScreenNavigator.Page.Current);
+
+			Assert.AreEqual(2, starts.Count, "Start は開始した A と C の 2 回だけ");
+			Assert.AreEqual(2, ends.Count, "End も対で 2 回だけ(未開始の B の分は出ない)");
+			Assert.AreSame(idA, starts[0].To);
+			Assert.AreSame(idC, starts[1].To);
+			Assert.IsFalse(ends[0].Succeeded, "開始済みでキャンセルされた A は Succeeded=false の End が出る");
+			Assert.IsTrue(ends[1].Succeeded);
+			Assert.IsFalse(starts.Exists(ev => ReferenceEquals(ev.To, idB)), "未開始の B のイベントは一切出ない");
 		}
 	}
 }

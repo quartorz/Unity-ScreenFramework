@@ -197,5 +197,35 @@ namespace Tests.ScreenFramework
 			await ScreenNavigator.Page.Pop();
 			Assert.AreSame(idA, ScreenNavigator.Page.Current, "フォールト後も通常の Pop が成立する");
 		}
+
+		[Test]
+		public async Task Pop_RestoreOnInitializeThrows_TopBecomesDormant_AndRecovers()
+		{
+			// 復元ロードの失敗は handle.Load / OnBeforeLoad だけでなく presenter 組み立て(OnInitialize)でも
+			// 起きる。OnInitialize は handle 生成より前なので補償(Unload / OnAfterUnload)は走らず、
+			// Pop は「dormant top + 伝播」の契約(C10)に着地する。
+			SetupNavigator();
+			var creations = 0;
+			FaultyPresenter second = null;
+			var idA = new ControllableScreenId(new InstantHandle(), () =>
+				++creations == 1 ? new NullPresenter() : (IScreenPresenter)(second = new FaultyPresenter("Initialize")));
+			await ScreenNavigator.Page.Push(idA);
+			await ScreenNavigator.Page.Push(new MarkerScreenId("B"));
+
+			Exception caught = null;
+			try { await ScreenNavigator.Page.Pop(); }
+			catch (Exception e) { caught = e; }
+
+			Assert.IsInstanceOf<InvalidOperationException>(caught, "復元時の OnInitialize の失敗も伝播する");
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count, "B の退場は完了している(巻き戻さない)");
+			Assert.AreSame(idA, ScreenNavigator.Page.Current, "履歴上の Current は A のまま(dormant)");
+			Assert.IsNotNull(second, "復元側の presenter は生成されている");
+			CollectionAssert.DoesNotContain(second.Events, "AfterUnload", "handle 生成前の失敗なので補償 hook は走らない");
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+
+			var idC = new MarkerScreenId("C");
+			await ScreenNavigator.Page.Push(idC);
+			Assert.AreSame(idC, ScreenNavigator.Page.Current, "dormant top の上にも次の Push が成立する");
+		}
 	}
 }

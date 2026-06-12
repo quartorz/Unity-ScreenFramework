@@ -28,8 +28,16 @@ namespace Tests.ScreenFramework
 	/// - 外部 CancellationToken によるキャンセル（rollback ゾーンでのみ有効、commit ゾーンでは無視）
 	/// - 遷移の割り込み（Preempt / Queue）と先行遷移の失敗の隔離
 	/// - PushAndAwait の決着保証（結果 / OCE、ハングしない）
-	/// - Effect 機構の失敗吸収（Matcher 例外 / EffectRoot 未設定）
-	/// 仕様の根拠と注入点の対応表は docs/fault-injection.md にまとめてある。
+	/// - Effect 機構の失敗吸収（Matcher 例外 / EffectRoot 未設定 / prefab Load 失敗）
+	/// 第 2 弾の追加分:
+	/// - rollback ゾーンの残り境界（OnBeforeLoad 単独 / OnAfterLoad / CreatePresenter / CreateHandle）
+	/// - 外部キャンセルなしの偽 OCE（rollback では伝播 + 補償、commit では吸収）
+	/// - Change / Reset のロード失敗ロールバックと Change の silent 破棄中フォールト
+	/// - Close（top / 最後の 1 枚）の退場 hook フォールト
+	/// - PushAndAwait のエントリが DismissAll / PopTo に破棄される経路の決着
+	/// - 割り込みの追加形（二重 Preempt / hook 境界への Preempt / Pop 退場中の Preempt）
+	/// - WaitForStage の timeout 決着、History.Edit のフォールト、Shutdown 中の hook フォールト
+	/// 仕様の根拠と注入点の対応表は docs/fault-injection.md（第 1 弾）と docs/fault-injection-2.md（第 2 弾）にまとめてある。
 	/// commit ゾーンの例外は Debug.LogException されるので各テストで <see cref="LogAssert.Expect"/> する。
 	/// </summary>
 	public sealed class FaultInjectionTests
@@ -55,8 +63,8 @@ namespace Tests.ScreenFramework
 			});
 		}
 
-		/// <summary>Page レイヤーに EffectRegistry を渡すセットアップ（EffectRoot は意図的に未設定）。</summary>
-		void SetupNavigatorWithPageRegistry(EffectRegistry registry)
+		/// <summary>Page レイヤーに EffectRegistry を渡すセットアップ（effectRoot 省略時は意図的に未設定）。</summary>
+		void SetupNavigatorWithPageRegistry(EffectRegistry registry, Transform effectRoot = null)
 		{
 			_pageContainer = NewContainer("PageRoot");
 			ScreenNavigator.Initialize(new TestServices(), new ScreenLayerSetup
@@ -69,6 +77,7 @@ namespace Tests.ScreenFramework
 					StackInputPolicy = StackInputPolicy.BlockUnderlying,
 					DefaultModal = true,
 					Registry = registry,
+					EffectRoot = effectRoot,
 				},
 				Dialog = NewLayer(NewContainer("DialogRoot")),
 				SystemDialog = NewLayer(NewContainer("SysRoot")),
@@ -744,6 +753,503 @@ namespace Tests.ScreenFramework
 		}
 
 		// ===========================================================================
+		// 第 2 弾: rollback ゾーンの残り境界
+		// （既存は handle.Load / OnInitialize / 二重失敗のみ。単独の hook 失敗と factory 失敗を埋める）
+		// ===========================================================================
+
+		[Test]
+		public async Task Push_OnBeforeLoadThrowsAlone_Propagates_AndLoadedViewIsCompensated()
+		{
+			// handle.Load は成功する（並列で view がロードされる）のに OnBeforeLoad だけが失敗するケース。
+			// ロード済みの view が漏れずに補償 Unload されることを見る。
+			SetupNavigator();
+			var handle = new InstantHandle();
+			var id = new ControllableScreenId(handle, () => new ThrowingOnBeforeLoadPresenter());
+
+			Exception caught = null;
+			try { await ScreenNavigator.Page.Push(id); }
+			catch (Exception e) { caught = e; }
+
+			Assert.IsInstanceOf<InvalidOperationException>(caught, "rollback ゾーンの hook 失敗は伝播する");
+			Assert.IsTrue(handle.UnloadCalled, "成功したロードも補償 Unload される");
+			Assert.AreEqual(0, ScreenNavigator.Page.History.Count);
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+
+			var idB = new MarkerScreenId("B");
+			await ScreenNavigator.Page.Push(idB);
+			Assert.AreSame(idB, ScreenNavigator.Page.Current, "フォールト後も次の Push が成立する");
+		}
+
+		[Test]
+		public async Task Push_OnAfterLoadThrows_Propagates_AndCleansUp()
+		{
+			// OnAfterLoad は rollback ゾーンの最後の hook（直後から完走必須ゾーン）。境界の内側であることを確かめる。
+			SetupNavigator();
+			var handle = new InstantHandle();
+			var presenter = new TrackingPresenter(throwOnAfterLoad: true);
+			var id = new ControllableScreenId(handle, () => presenter);
+
+			Exception caught = null;
+			try { await ScreenNavigator.Page.Push(id); }
+			catch (Exception e) { caught = e; }
+
+			Assert.IsInstanceOf<InvalidOperationException>(caught, "OnAfterLoad の失敗はまだ rollback ゾーン = 伝播する");
+			Assert.IsTrue(handle.UnloadCalled, "ロード済み view は補償 Unload される");
+			Assert.IsTrue(presenter.OnAfterUnloadCalled, "破棄経路でも OnAfterUnload が呼ばれる");
+			Assert.AreEqual(0, ScreenNavigator.Page.History.Count, "失敗した Push は履歴に残らない");
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+		}
+
+		[Test]
+		public async Task CreatePresenterThrows_Propagates_AndNavigatorRecovers()
+		{
+			SetupNavigator();
+			var handle = new InstantHandle();
+			var id = new ControllableScreenId(handle, () => throw new InvalidOperationException("fault injected at CreatePresenter"));
+
+			Exception caught = null;
+			try { await ScreenNavigator.Page.Push(id); }
+			catch (Exception e) { caught = e; }
+
+			Assert.IsInstanceOf<InvalidOperationException>(caught, "presenter factory の失敗は伝播する");
+			Assert.IsFalse(handle.UnloadCalled, "presenter 生成は handle 生成より前なので handle は接触されない");
+			Assert.AreEqual(0, ScreenNavigator.Page.History.Count);
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+
+			var idB = new MarkerScreenId("B");
+			await ScreenNavigator.Page.Push(idB);
+			Assert.AreSame(idB, ScreenNavigator.Page.Current, "フォールト後も次の Push が成立する");
+		}
+
+		[Test]
+		public async Task CreateHandleThrows_Propagates_AndNavigatorRecovers()
+		{
+			SetupNavigator();
+			var id = new ThrowingHandleScreenId();
+
+			Exception caught = null;
+			try { await ScreenNavigator.Page.Push(id); }
+			catch (Exception e) { caught = e; }
+
+			Assert.IsInstanceOf<InvalidOperationException>(caught, "CreateHandle の失敗は伝播する");
+			Assert.AreEqual(0, ScreenNavigator.Page.History.Count);
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+
+			var idB = new MarkerScreenId("B");
+			await ScreenNavigator.Page.Push(idB);
+			Assert.AreSame(idB, ScreenNavigator.Page.Current, "フォールト後も次の Push が成立する");
+		}
+
+		// ===========================================================================
+		// 第 2 弾: 外部キャンセルなしの偽 OCE
+		// （hook が誤って OperationCanceledException を投げてもキャンセル経路と混線しない）
+		// ===========================================================================
+
+		[Test]
+		public async Task Push_HookThrowsSpuriousOce_InRollbackZone_CleansUpAndRecovers()
+		{
+			SetupNavigator();
+			var handle = new InstantHandle();
+			var id = new ControllableScreenId(handle, () => new SpuriousOcePresenter("BeforeLoad"));
+
+			Exception caught = null;
+			try { await ScreenNavigator.Page.Push(id); }
+			catch (Exception e) { caught = e; }
+
+			Assert.IsInstanceOf<OperationCanceledException>(caught, "偽 OCE もそのまま伝播する（握り潰されない）");
+			Assert.IsTrue(handle.UnloadCalled, "偽 OCE でもロード済み view は補償 Unload される");
+			Assert.AreEqual(0, ScreenNavigator.Page.History.Count);
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+
+			var idB = new MarkerScreenId("B");
+			await ScreenNavigator.Page.Push(idB);
+			Assert.AreSame(idB, ScreenNavigator.Page.Current, "偽 OCE 後も次の Push が成立する");
+		}
+
+		[Test]
+		public async Task Push_HookThrowsSpuriousOce_InCommitZone_IsAbsorbed_AndPushCompletes()
+		{
+			// 完走必須ゾーンは ct=None で呼ばれるため、hook が OCE を投げても
+			// 「キャンセルされた」扱いにはならず、他の例外と同じく吸収して完走する。
+			SetupNavigator();
+			LogAssert.Expect(LogType.Exception, new Regex("spurious OCE injected at BeforeEnter"));
+
+			var id = new ControllableScreenId(new InstantHandle(), () => new SpuriousOcePresenter("BeforeEnter"));
+			await ScreenNavigator.Page.Push(id);
+
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count);
+			Assert.AreSame(id, ScreenNavigator.Page.Current, "commit ゾーンの偽 OCE で遷移は中断しない");
+		}
+
+		// ===========================================================================
+		// 第 2 弾: Change / Reset のロード失敗ロールバック（既存は Replace のみ）
+		// ===========================================================================
+
+		[Test]
+		public async Task Change_LoadFails_WholeStackSurvives_AndChangeCanBeRetried()
+		{
+			// Change は「先ロード → 成功後に下スタック破棄」。ロード失敗時は下スタック含め全体が無傷で残る。
+			SetupNavigator();
+			var idA = new MarkerScreenId("A");
+			var idB = new MarkerScreenId("B");
+			await ScreenNavigator.Page.Push(idA);
+			await ScreenNavigator.Page.Push(idB);
+			var handle = new FaultyLoadHandle();
+			var idX = new ControllableScreenId(handle, () => new TrackingPresenter());
+
+			Exception caught = null;
+			try { await ScreenNavigator.Page.Change(idX); }
+			catch (Exception e) { caught = e; }
+
+			Assert.IsInstanceOf<InvalidOperationException>(caught, "Change の load 失敗は伝播する");
+			Assert.IsTrue(handle.UnloadCalled, "失敗した load は補償 Unload される");
+			Assert.AreEqual(2, ScreenNavigator.Page.History.Count, "失敗した Change は下スタックも壊さない");
+			Assert.AreSame(idB, ScreenNavigator.Page.Current, "旧最上段が Current のまま生き残る");
+
+			var idC = new MarkerScreenId("C");
+			await ScreenNavigator.Page.Change(idC);
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count, "失敗後も Change を再試行できる");
+			Assert.AreSame(idC, ScreenNavigator.Page.Current);
+		}
+
+		[Test]
+		public async Task Reset_LoadFails_ExistingStackSurvives()
+		{
+			// Reset も「先ロード → 成功後に全破壊」。ロード失敗で黒画面（スタック 0 枚）にならない。
+			SetupNavigator();
+			var idA = new MarkerScreenId("A");
+			var idB = new MarkerScreenId("B");
+			await ScreenNavigator.Page.Push(idA);
+			await ScreenNavigator.Page.Push(idB);
+			var handle = new FaultyLoadHandle();
+			var idX = new ControllableScreenId(handle, () => new TrackingPresenter());
+
+			Exception caught = null;
+			try { await ScreenNavigator.Page.Reset(idX); }
+			catch (Exception e) { caught = e; }
+
+			Assert.IsInstanceOf<InvalidOperationException>(caught, "Reset の load 失敗は伝播する");
+			Assert.IsTrue(handle.UnloadCalled);
+			Assert.AreEqual(2, ScreenNavigator.Page.History.Count, "失敗した Reset は既存スタックを壊さない");
+			Assert.AreSame(idB, ScreenNavigator.Page.Current);
+
+			var idC = new MarkerScreenId("C");
+			await ScreenNavigator.Page.Reset(idC);
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count, "失敗後も Reset を再試行できる");
+			Assert.AreSame(idC, ScreenNavigator.Page.Current);
+		}
+
+		[Test]
+		public async Task Change_BottomTeardownHookThrows_ChangeStillCompletes()
+		{
+			// Change の下スタック silent 破棄（完走必須ゾーン）中の hook 失敗は吸収され、単一画面化が完了する。
+			SetupNavigator(ScreenCacheMode.KeepOnCover);   // 下の A を生かしたまま破棄に巻き込む
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at AfterUnload"));
+
+			await ScreenNavigator.Page.Push(new ControllableScreenId(new InstantHandle(), () => new FaultyPresenter("AfterUnload")));
+			await ScreenNavigator.Page.Push(new MarkerScreenId("B"));
+
+			var idC = new MarkerScreenId("C");
+			await ScreenNavigator.Page.Change(idC);
+
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count, "下スタック破棄中の hook 失敗で Change が中断しない");
+			Assert.AreSame(idC, ScreenNavigator.Page.Current);
+		}
+
+		// ===========================================================================
+		// 第 2 弾: Close のフォールト（既存テスト未カバーの操作）
+		// ===========================================================================
+
+		[Test]
+		public async Task Close_TopExitHookThrows_CloseCompletes()
+		{
+			SetupNavigator();
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at BeforeExit"));
+
+			var idA = new MarkerScreenId("A");
+			await ScreenNavigator.Page.Push(idA);
+			var entry = await ScreenNavigator.Page.Push(new ControllableScreenId(new InstantHandle(), () => new FaultyPresenter("BeforeExit")));
+
+			await entry.Close();
+
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count, "退場 hook の失敗で Close が中断しない");
+			Assert.AreSame(idA, ScreenNavigator.Page.Current);
+			Assert.IsFalse(entry.IsAlive, "失敗した hook を持つエントリも閉じ切られる");
+		}
+
+		[Test]
+		public async Task Close_LastScreenExitHookThrows_StillClosesAndRecovers()
+		{
+			// Close は Pop と違い最後の 1 枚も閉じられる。その経路でも hook 失敗が畳み残しを生まない。
+			SetupNavigator();
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at BeforeExit"));
+
+			var entry = await ScreenNavigator.Page.Push(new ControllableScreenId(new InstantHandle(), () => new FaultyPresenter("BeforeExit")));
+
+			await entry.Close();
+
+			Assert.AreEqual(0, ScreenNavigator.Page.History.Count, "最後の 1 枚でも hook 失敗で Close が中断しない");
+
+			var idB = new MarkerScreenId("B");
+			await ScreenNavigator.Page.Push(idB);
+			Assert.AreSame(idB, ScreenNavigator.Page.Current, "空スタックからの再 Push が成立する");
+		}
+
+		// ===========================================================================
+		// 第 2 弾: PushAndAwait のエントリが複合操作に破棄される経路
+		// （既存は preempt / Replace のみ。「DismissAll 等で破棄されたら OCE」の契約を埋める）
+		// ===========================================================================
+
+		[Test]
+		public async Task PushAndAwait_SweptByDismissAll_AwaiterGetsOce()
+		{
+			SetupNavigator();
+			await ScreenNavigator.Page.Push(new MarkerScreenId("Base"));
+			var resultTask = ScreenNavigator.Page.PushAndAwait(new EchoDialogId("never"));
+
+			await ScreenNavigator.Page.DismissAll();
+
+			Exception caught = null;
+			try { await resultTask; }
+			catch (Exception e) { caught = e; }
+
+			Assert.IsInstanceOf<OperationCanceledException>(caught, "DismissAll で破棄された dialog の awaiter は OCE で決着する");
+			Assert.AreEqual(0, ScreenNavigator.Page.History.Count);
+		}
+
+		[Test]
+		public async Task PushAndAwait_SweptByPopTo_AwaiterGetsOce()
+		{
+			// KeepOnCover で生きたまま中間に埋まった dialog を PopTo が silent 破棄する経路。
+			SetupNavigator(ScreenCacheMode.KeepOnCover);
+			var idA = new MarkerScreenId("A");
+			await ScreenNavigator.Page.Push(idA);
+			var resultTask = ScreenNavigator.Page.PushAndAwait(new EchoDialogId("never"));
+			await ScreenNavigator.Page.Push(new MarkerScreenId("C"));
+
+			await ScreenNavigator.Page.PopTo(id => id is MarkerScreenId m && m.Label == "A");
+
+			Exception caught = null;
+			try { await resultTask; }
+			catch (Exception e) { caught = e; }
+
+			Assert.IsInstanceOf<OperationCanceledException>(caught, "PopTo に巻き込まれた dialog の awaiter は OCE で決着する");
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count);
+			Assert.AreSame(idA, ScreenNavigator.Page.Current);
+		}
+
+		// ===========================================================================
+		// 第 2 弾: 割り込みの追加形
+		// ===========================================================================
+
+		[Test]
+		public async Task Preempt_Chain_BothLosersSettleWithOce_LastWinnerWins()
+		{
+			// 二重割り込み: load 中の A を B が殺し、待機中の B を C が殺す。
+			// 敗者は両方 OCE で決着し（ハングしない）、最後の勝者だけが積まれる。
+			SetupNavigator();
+			var sourceA = new UniTaskCompletionSource<IScreenViewInstance>();
+			var handleA = new ControllableHandle(sourceA);
+			var idA = new ControllableScreenId(handleA);
+			var sourceB = new UniTaskCompletionSource<IScreenViewInstance>();
+			var idB = new ControllableScreenId(new ControllableHandle(sourceB));
+			var idC = new MarkerScreenId("C");
+
+			var pushA = ScreenNavigator.Page.Push(idA);
+			var pushB = ScreenNavigator.Page.Push(idB);
+			var pushC = ScreenNavigator.Page.Push(idC);
+
+			Exception caughtA = null;
+			Exception caughtB = null;
+			try { await pushA; }
+			catch (Exception e) { caughtA = e; }
+			try { await pushB; }
+			catch (Exception e) { caughtB = e; }
+			await pushC;
+
+			Assert.IsInstanceOf<OperationCanceledException>(caughtA, "load 中に殺された A は OCE で決着する");
+			Assert.IsInstanceOf<OperationCanceledException>(caughtB, "開始前に殺された B も OCE で決着する");
+			Assert.IsTrue(handleA.UnloadCalled, "load 中だった A は補償 Unload される");
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count, "敗者は履歴に残らない");
+			Assert.AreSame(idC, ScreenNavigator.Page.Current);
+		}
+
+		[Test]
+		public async Task Preempt_DuringOnBeforeLoadHook_LoserIsCompensated()
+		{
+			// 既存テストの割り込み点は handle.Load の await 境界。こちらは presenter hook（OnBeforeLoad）の
+			// await 境界に割り込みが刺さるケース。hook は ct を正しく観測する行儀の良い実装。
+			SetupNavigator();
+			var handle = new InstantHandle();
+			var presenter = new HangingBeforeLoadPresenter();
+			var idA = new ControllableScreenId(handle, () => presenter);
+			var idB = new MarkerScreenId("B");
+
+			var pushA = ScreenNavigator.Page.Push(idA);
+			var pushB = ScreenNavigator.Page.Push(idB);
+
+			Exception caughtA = null;
+			try { await pushA; }
+			catch (Exception e) { caughtA = e; }
+			await pushB;
+
+			Assert.IsInstanceOf<OperationCanceledException>(caughtA, "hook 境界で殺された側も OCE で決着する");
+			Assert.IsTrue(handle.UnloadCalled, "ロード済み view は補償 Unload される");
+			Assert.IsTrue(presenter.OnAfterUnloadCalled, "破棄経路でも OnAfterUnload が呼ばれる");
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count);
+			Assert.AreSame(idB, ScreenNavigator.Page.Current);
+		}
+
+		[Test]
+		public async Task Pop_PreemptArrivesDuringExit_PopStillCompletes()
+		{
+			// Pop は全段が完走必須ゾーン。退場 hook の途中に Preempt が来ても Pop は完走し、
+			// 割り込みはその後に実行される。
+			SetupNavigator();
+			var idA = new MarkerScreenId("A");
+			await ScreenNavigator.Page.Push(idA);
+			var gated = new GatedExitPresenter();
+			await ScreenNavigator.Page.Push(new ControllableScreenId(new InstantHandle(), () => gated));
+
+			var popTask = ScreenNavigator.Page.Pop();
+			await gated.Started;   // Pop は OnBeforeExit で停止中
+			var idC = new MarkerScreenId("C");
+			var pushC = ScreenNavigator.Page.Push(idC);   // Preempt 既定だが commit 中の Pop は殺せない
+			gated.Release();
+
+			await popTask;   // OCE にならず完走する
+			await pushC;
+
+			Assert.AreEqual(2, ScreenNavigator.Page.History.Count, "Pop 完了後に割り込みの Push が積まれる");
+			Assert.AreSame(idC, ScreenNavigator.Page.Current);
+		}
+
+		// ===========================================================================
+		// 第 2 弾: stage signal の決着（publish されない stage への待ちが timeout で抜けられる）
+		// ===========================================================================
+
+		[Test]
+		public async Task Push_HookWaitsForStageNeverPublished_TimesOutAndRollsBack()
+		{
+			SetupNavigator();
+			var handle = new InstantHandle();
+			var id = new ControllableScreenId(handle, () => new StageWaitPresenter());
+
+			Exception caught = null;
+			try { await ScreenNavigator.Page.Push(id); }
+			catch (Exception e) { caught = e; }
+
+			Assert.IsInstanceOf<TimeoutException>(caught, "publish されない stage の待ちは timeout で決着する");
+			Assert.IsTrue(handle.UnloadCalled, "timeout した遷移も補償 Unload される");
+			Assert.AreEqual(0, ScreenNavigator.Page.History.Count);
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+
+			var idB = new MarkerScreenId("B");
+			await ScreenNavigator.Page.Push(idB);
+			Assert.AreSame(idB, ScreenNavigator.Page.Current, "timeout 後も次の Push が成立する");
+		}
+
+		// ===========================================================================
+		// 第 2 弾: Effect prefab の Load/Instantiate 失敗（既存は Matcher 例外 / EffectRoot 未設定のみ）
+		// ===========================================================================
+
+		[Test]
+		public async Task EffectPrefabLoadFails_IsAbsorbed_AndTransitionContinues()
+		{
+			// 形式上は有効だが実在しない GUID の AssetReference を EffectRoot 付きでマッチさせ、
+			// prefab の Load/Instantiate 失敗が吸収されることを見る。
+			// Addressables 自体が出すエラーログは本数・文言が環境依存なので個別 Expect せず一括で無視する。
+			var registry = NewRegistry(new EffectRegistry.Row { From = null, To = null, EffectPrefab = NewAssetRef() });
+			var effectRoot = new GameObject("EffectRoot");
+			LogAssert.ignoreFailingMessages = true;
+			try
+			{
+				SetupNavigatorWithPageRegistry(registry, effectRoot.transform);
+
+				var id = new MarkerScreenId("A");
+				await ScreenNavigator.Page.Push(id);
+
+				Assert.AreSame(id, ScreenNavigator.Page.Current, "Effect prefab のロード失敗で遷移本筋は止まらない");
+				Assert.AreEqual(1, ScreenNavigator.Page.History.Count);
+			}
+			finally
+			{
+				LogAssert.ignoreFailingMessages = false;
+				UnityEngine.Object.DestroyImmediate(effectRoot);
+			}
+		}
+
+		// ===========================================================================
+		// 第 2 弾: History.Edit のフォールト（無音編集は遷移本筋にも以後の操作にも影響しない）
+		// ===========================================================================
+
+		[Test]
+		public async Task HistoryEdit_DeferredActionThrows_IsAbsorbed_AndNavigatorRemainsUsable()
+		{
+			// 遷移中に積まれた Edit はチェーン完了後に適用される。その適用が throw しても
+			// 完了済みの遷移と以後の操作は壊れない。
+			SetupNavigator();
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at History\\.Edit"));
+
+			var gated = new GatedPresenter();
+			var pushTask = ScreenNavigator.Page.Push(new ControllableScreenId(new InstantHandle(), () => gated));
+			await gated.Started;   // 遷移中（完走必須ゾーン）
+			ScreenNavigator.Page.History.Edit(_ => throw new InvalidOperationException("fault injected at History.Edit"));
+			gated.Release();
+
+			await pushTask;
+
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count, "編集の失敗で遷移本筋は壊れない");
+
+			var idB = new MarkerScreenId("B");
+			await ScreenNavigator.Page.Push(idB);
+			Assert.AreSame(idB, ScreenNavigator.Page.Current, "編集の失敗後も次の操作が成立する");
+		}
+
+		[Test]
+		public async Task HistoryEdit_RemovedEntryUnloadThrows_EditStillApplies()
+		{
+			SetupNavigator(ScreenCacheMode.KeepOnCover);   // 下の A を生きたまま編集で外す
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at handle\\.Unload"));
+
+			await ScreenNavigator.Page.Push(new ControllableScreenId(new FaultyUnloadHandle()));
+			var idB = new MarkerScreenId("B");
+			await ScreenNavigator.Page.Push(idB);
+
+			ScreenNavigator.Page.History.Edit(e => e.RemoveAt(0));
+
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count, "破棄処理の失敗で編集適用が止まらない");
+			Assert.AreSame(idB, ScreenNavigator.Page.Current);
+
+			var idC = new MarkerScreenId("C");
+			await ScreenNavigator.Page.Push(idC);
+			Assert.AreSame(idC, ScreenNavigator.Page.Current, "編集後も次の操作が成立する");
+		}
+
+		// ===========================================================================
+		// 第 2 弾: Shutdown 中の hook フォールト（畳み切り + 再 Initialize 可能の保証）
+		// ===========================================================================
+
+		[Test]
+		public async Task Shutdown_WithThrowingExitHook_CompletesAndAllowsReinitialize()
+		{
+			SetupNavigator();
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at BeforeExit"));
+			await ScreenNavigator.Page.Push(new ControllableScreenId(new InstantHandle(), () => new FaultyPresenter("BeforeExit")));
+
+			await ScreenNavigator.Shutdown();
+
+			Assert.IsNull(ScreenNavigator.Page, "hook の失敗があっても静的参照は畳まれる");
+
+			// 再 Initialize して通常の操作ができる
+			DestroyContainer(_pageContainer);
+			SetupNavigator();
+			var idB = new MarkerScreenId("B");
+			await ScreenNavigator.Page.Push(idB);
+			Assert.AreSame(idB, ScreenNavigator.Page.Current, "Shutdown 後の再 Initialize で通常運転に戻れる");
+		}
+
+		// ===========================================================================
 		// フォールト注入用のテストダブル
 		// ===========================================================================
 
@@ -877,6 +1383,88 @@ namespace Tests.ScreenFramework
 		{
 			public override bool Match(IScreenIdentifier id, ITransitionContext ctx)
 				=> throw new InvalidOperationException("fault injected at Matcher.Match");
+		}
+
+		/// <summary>CreateHandle が必ず throw する identifier（factory 境界のフォールト注入用）。</summary>
+		sealed record ThrowingHandleScreenId : ScreenIdentifier
+		{
+			public override IScreenHandle CreateHandle(ScreenServices s)
+				=> throw new InvalidOperationException("fault injected at CreateHandle");
+			public override IScreenPresenter CreatePresenter(ScreenServices s) => new NullPresenter();
+		}
+
+		/// <summary>
+		/// 指定した hook で外部キャンセルなしに OperationCanceledException を投げる presenter。
+		/// キャンセル経路との混線（偽 OCE の扱い）を見るために使う。
+		/// </summary>
+		sealed class SpuriousOcePresenter : IScreenPresenter
+		{
+			readonly string _faultAt;
+			public SpuriousOcePresenter(string faultAt) => _faultAt = faultAt;
+
+			UniTask Step(string name)
+			{
+				if (name == _faultAt) throw new OperationCanceledException($"spurious OCE injected at {name}");
+				return UniTask.CompletedTask;
+			}
+
+			UniTask IScreenPresenter.OnInitialize(CancellationToken c) => Step("Initialize");
+			UniTask IScreenPresenter.OnBeforeLoad(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("BeforeLoad");
+			UniTask IScreenPresenter.OnAfterLoad(IScreenViewInstance v, INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("AfterLoad");
+			UniTask IScreenPresenter.OnBeforeEnter(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("BeforeEnter");
+			UniTask IScreenPresenter.OnAfterEnter(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("AfterEnter");
+			UniTask IScreenPresenter.OnBeforeExit(INavigationDataWriter w, ITransitionContext x, CancellationToken c) => Step("BeforeExit");
+			UniTask IScreenPresenter.OnAfterExit(INavigationDataWriter w, ITransitionContext x, CancellationToken c) => Step("AfterExit");
+		}
+
+		/// <summary>
+		/// OnBeforeLoad で ct を正しく観測しながら永久に待つ presenter（割り込みが hook の await 境界に
+		/// 刺さるケースの注入用）。OnAfterUnload の呼出も記録する。
+		/// </summary>
+		sealed class HangingBeforeLoadPresenter : IScreenPresenter
+		{
+			public bool OnAfterUnloadCalled { get; private set; }
+
+			UniTask IScreenPresenter.OnBeforeLoad(INavigationDataReader r, ITransitionContext x, CancellationToken c)
+			{
+				var tcs = new UniTaskCompletionSource();
+				c.Register(() => tcs.TrySetCanceled(c));
+				return tcs.Task;
+			}
+
+			UniTask IScreenPresenter.OnAfterUnload(INavigationDataWriter w, CancellationToken c)
+			{
+				OnAfterUnloadCalled = true;
+				return UniTask.CompletedTask;
+			}
+		}
+
+		/// <summary>
+		/// OnBeforeExit で Started を立ててから Release まで待機する presenter。
+		/// Pop の退場フェーズ（完走必須ゾーン）の途中に割り込みをぶつけるために使う。
+		/// </summary>
+		sealed class GatedExitPresenter : IScreenPresenter
+		{
+			readonly UniTaskCompletionSource _started = new();
+			readonly UniTaskCompletionSource _release = new();
+			public UniTask Started => _started.Task;
+			public void Release() => _release.TrySetResult();
+
+			UniTask IScreenPresenter.OnBeforeExit(INavigationDataWriter w, ITransitionContext x, CancellationToken c)
+			{
+				_started.TrySetResult();
+				return _release.Task;
+			}
+		}
+
+		/// <summary>誰も publish しない stage key（WaitForStage の timeout 決着テスト用）。</summary>
+		sealed class NeverPublishedStage : IStageKey { }
+
+		/// <summary>OnBeforeLoad で NeverPublishedStage を短い timeout 付きで待つ presenter。</summary>
+		sealed class StageWaitPresenter : IScreenPresenter
+		{
+			UniTask IScreenPresenter.OnBeforeLoad(INavigationDataReader r, ITransitionContext x, CancellationToken c)
+				=> x.WaitForStage<NeverPublishedStage>(c, TimeSpan.FromMilliseconds(50));
 		}
 
 		/// <summary>中身は問わないがキー形式としては有効な AssetReference（Effect prefab の placeholder）。</summary>

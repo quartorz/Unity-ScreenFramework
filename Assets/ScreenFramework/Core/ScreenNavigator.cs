@@ -35,9 +35,16 @@ namespace ScreenFramework
 				throw new InvalidOperationException(
 					"ScreenNavigator は既に初期化済みです。再初期化の前に await ScreenNavigator.Shutdown() を呼んでください。");
 
-			Page = new ScreenNavigatorImpl(services, setup.Page);
-			Dialog = new ScreenNavigatorImpl(services, setup.Dialog);
-			SystemDialog = new ScreenNavigatorImpl(services, setup.SystemDialog);
+			// 全レイヤーをローカルに組み立ててから一括代入する。途中の ScreenNavigatorImpl ctor が
+			// 検証(Container 欠落など)で throw しても、static 参照に部分状態を残さない
+			// (= 失敗した Initialize の後、Shutdown を挟まず正しい設定で再 Initialize できる)。
+			var page = new ScreenNavigatorImpl(services, setup.Page);
+			var dialog = new ScreenNavigatorImpl(services, setup.Dialog);
+			var systemDialog = new ScreenNavigatorImpl(services, setup.SystemDialog);
+
+			Page = page;
+			Dialog = dialog;
+			SystemDialog = systemDialog;
 		}
 
 		/// <summary>

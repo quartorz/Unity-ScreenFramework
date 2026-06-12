@@ -242,7 +242,7 @@ namespace ScreenFramework
 				FireStart(from, to: null, ScreenTransitionKind.DismissAll);
 				var ok = false;
 				try { await DismissAllInternal(OperationKind.DismissAll, myCt); ok = true; }
-				finally { FireEnd(Current, to: null, ScreenTransitionKind.DismissAll, ok); }
+				finally { FireEnd(from, to: null, ScreenTransitionKind.DismissAll, ok); }
 			});
 		}
 
@@ -489,8 +489,14 @@ namespace ScreenFramework
 			{
 				var top = _live[_live.Count - 1];
 				var returnStore = new NavigationDataStore();
-				await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: true, effect, ctx, safeCt, returnStore, isNormalPop: true);
-				DestroyBlockerIfAny(top);
+				// top が dormant（復元ロード失敗等で _live の末尾が null）の場合は退場フェーズが無い。
+				// ExitPreviousAsync は先頭で entry.Suspended を読むので null を渡すと NRE になる。
+				// DismissAllInternal と同じく退場・blocker 破棄を飛ばして bookkeeping だけ進める。
+				if (top != null)
+				{
+					await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: true, effect, ctx, safeCt, returnStore, isNormalPop: true);
+					DestroyBlockerIfAny(top);
+				}
 
 				_live.RemoveAt(_live.Count - 1);
 				_history.PopCurrent();
@@ -649,8 +655,13 @@ namespace ScreenFramework
 				// 完走必須ゾーン
 				var safeCt = CancellationToken.None;
 				var top = _live[_live.Count - 1];
-				await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: false, effect, ctx, safeCt);
-				DestroyBlockerIfAny(top);
+				// top が dormant（_live の末尾が null）の場合は退場フェーズが無い。null を ExitPreviousAsync に
+				// 渡すと NRE で commit ゾーンに入った後にロード済み新画面が孤児化するため、退場を飛ばす。
+				if (top != null)
+				{
+					await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: false, effect, ctx, safeCt);
+					DestroyBlockerIfAny(top);
+				}
 
 				newEntry.Modal = ResolveModal(opt.ModalOverride);
 				if (ShouldCreateBlocker(newEntry.Modal) && _live.Count >= 2)
@@ -744,8 +755,13 @@ namespace ScreenFramework
 				await ClearAllExceptCurrentAsync(safeCt);
 				// 現在の最上段を Effect 付きで退場させ、新画面へ差し替える（cross-fade replace 相当）
 				var top = _live[_live.Count - 1];
-				await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: false, effect, ctx, safeCt);
-				DestroyBlockerIfAny(top);
+				// top が dormant（_live の末尾が null）の場合は退場フェーズが無い。null を ExitPreviousAsync に
+				// 渡すと NRE になり、下スタック破棄済み・新画面未コミットの壊れた状態が残るため退場を飛ばす。
+				if (top != null)
+				{
+					await ExitPreviousAsync(top, ScreenCacheMode.DestroyOnCover, isPop: false, effect, ctx, safeCt);
+					DestroyBlockerIfAny(top);
+				}
 
 				_live[_live.Count - 1] = entry;
 				_history.ReplaceCurrent(id);

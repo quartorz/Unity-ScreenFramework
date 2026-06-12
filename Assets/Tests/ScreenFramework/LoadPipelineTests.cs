@@ -1,6 +1,4 @@
-﻿using System;
-using System.Threading.Tasks;
-using Cysharp.Threading.Tasks;
+﻿using Cysharp.Threading.Tasks;
 using NUnit.Framework;
 using ScreenFramework;
 
@@ -9,9 +7,9 @@ namespace Tests.ScreenFramework
 	using static ScreenTestFixtures;
 
 	/// <summary>
-	/// Load パイプライン(OnBeforeLoad / handle.Load / OnAfterLoad)の失敗時の挙動を検証する。
-	/// 修正方針: CreateAndPreloadAsync は OCE/非OCE どちらでも handle.Unload + presenter.OnAfterUnload を
-	/// 呼んでから元の例外で抜ける。
+	/// Load パイプライン(OnBeforeLoad / handle.Load / OnAfterLoad)の失敗時の挙動のうち、
+	/// まだハーネスが無いもののプレースホルダ。失敗時の補償(handle.Unload + OnAfterUnload)と
+	/// 例外伝播は <see cref="FaultInjectionPushTests"/> が網羅している。
 	/// </summary>
 	public sealed class LoadPipelineTests
 	{
@@ -35,39 +33,6 @@ namespace Tests.ScreenFramework
 			// 再 Initialize 例外ガード（既初期化なら throw）があるので、各テスト後に静的参照を畳む。
 			ScreenNavigator.Shutdown().Forget();
 			DestroyContainer(_pageContainer);
-		}
-
-		[Test]
-		public async Task NonOceFailure_DuringLoad_StillUnloadsHandle()
-		{
-			// presenter.OnBeforeLoad が非 OCE を投げる。
-			// 旧実装は catch(OCE) のみで handle.Unload を呼ばずに漏れ、利用側に OCE 詰め替えを強いていた。
-			// 修正後: 非 OCE でも handle.Unload が呼ばれ、元の例外が伝播する。
-			var handle = new InstantHandle();
-			var id = new ControllableScreenId(handle, () => new ThrowingOnBeforeLoadPresenter());
-
-			Exception caught = null;
-			try { await ScreenNavigator.Page.Push(id); }
-			catch (Exception e) { caught = e; }
-
-			Assert.IsNotNull(caught, "non-OCE exception should propagate");
-			Assert.IsNotInstanceOf<OperationCanceledException>(caught,
-				"元の例外型のまま (OCE 詰め替えされない)");
-			Assert.IsTrue(handle.UnloadCalled, "handle.Unload must be called on non-OCE failure too");
-		}
-
-		[Test]
-		public async Task LoadFailure_CallsOnAfterUnload()
-		{
-			// 正常退場と symmetry を取って、Load 失敗時も OnAfterUnload を呼ぶ契約。
-			// OnAfterLoad の途中で張った購読の補償フックを画面側に与える。
-			var presenter = new TrackingPresenter(throwOnAfterLoad: true);
-			var id = new ControllableScreenId(new InstantHandle(), () => presenter);
-
-			try { await ScreenNavigator.Page.Push(id); }
-			catch { /* propagate ok */ }
-
-			Assert.IsTrue(presenter.OnAfterUnloadCalled, "Load 失敗時も OnAfterUnload を呼ぶ契約");
 		}
 
 		[Test]

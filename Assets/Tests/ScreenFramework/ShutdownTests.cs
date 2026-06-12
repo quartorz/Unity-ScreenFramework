@@ -1,4 +1,3 @@
-using System;
 using System.Threading.Tasks;
 using Cysharp.Threading.Tasks;
 using NUnit.Framework;
@@ -58,30 +57,8 @@ namespace Tests.ScreenFramework
 			Assert.IsNull(ScreenNavigator.SystemDialog);
 		}
 
-		[Test]
-		public async Task Shutdown_CancelsPendingPushAndAwait()
-		{
-			// 結果を SetResult しないダイアログ。awaiter は開いたまま（Pop / Dismiss されるまで解決しない）。
-			var task = ScreenNavigator.Page.PushAndAwait(new EchoDialogId(null));
-			await UniTask.Yield();
-			await UniTask.Yield();
-
-			await ScreenNavigator.Shutdown();
-
-			try
-			{
-				await task;
-				Assert.Fail("Shutdown の DismissAll で pending awaiter がキャンセルされるべき");
-			}
-			catch (OperationCanceledException) { /* 期待 */ }
-		}
-
-		[Test]
-		public void Initialize_WhenAlreadyInitialized_Throws()
-		{
-			// SetUp で初期化済み。Shutdown せずに再初期化すると例外。
-			Assert.Throws<InvalidOperationException>(InitializeNavigator);
-		}
+		// pending PushAndAwait awaiter の OCE 決着は FaultInjectionInfraTests.Shutdown_PendingPushAndAwait_AwaiterSettlesWithOce、
+		// Shutdown なし再 Initialize の例外は同 InitializeTwice_Throws_AndExistingNavigatorsRemainUsable が検証している。
 
 		[Test]
 		public async Task Shutdown_ThenInitialize_Works()

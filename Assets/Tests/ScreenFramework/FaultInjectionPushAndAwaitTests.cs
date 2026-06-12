@@ -55,23 +55,9 @@ namespace Tests.ScreenFramework
 			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
 		}
 
-		[Test]
-		public async Task PushAndAwait_CancelAfterPushPhase_DoesNotCancelResultWait()
-		{
-			// 契約: ct は Push フェーズ(rollback ゾーン)にのみ作用し、結果待ちはキャンセルできない。
-			SetupNavigator();
-			await ScreenNavigator.Page.Push(new MarkerScreenId("Base"));
-			using var cts = new CancellationTokenSource();
-
-			var resultTask = ScreenNavigator.Page.PushAndAwait(new EchoDialogId("hello"), ct: cts.Token);
-			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning, "この時点で Push フェーズは完了している前提");
-			cts.Cancel();   // wait phase でのキャンセルは無効
-
-			await ScreenNavigator.Page.Pop();   // 正常 Pop で結果が届く
-
-			var result = await resultTask;
-			Assert.AreEqual("hello", result.Text, "wait phase の ct キャンセルは結果待ちに影響しない");
-		}
+		// 「ct は Push フェーズにのみ作用し結果待ちはキャンセルできない」契約は
+		// PushAndAwaitTests.ExternalCt_DoesNotCancelWaitPhase_ByDesign が
+		// キャンセル後も未解決のままであることまで含めて検証している。
 
 		[Test]
 		public async Task PushAndAwait_PreemptedDuringLoad_AwaiterGetsOce()

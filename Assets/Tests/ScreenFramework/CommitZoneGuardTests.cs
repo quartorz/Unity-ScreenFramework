@@ -89,19 +89,7 @@ namespace Tests.ScreenFramework
 			Assert.AreSame(idA, ScreenNavigator.Page.Current);
 		}
 
-		[Test]
-		public async Task Push_OnBeforeLoadThrows_StillPropagates()
-		{
-			// rollback ゾーン（Load 前）の例外は保護対象外。従来どおり Push の呼び出し側へ伝播する。
-			var id = new ControllableScreenId(new InstantHandle(), () => new ThrowingOnBeforeLoadPresenter());
-
-			Exception caught = null;
-			try { await ScreenNavigator.Page.Push(id); }
-			catch (Exception e) { caught = e; }
-
-			Assert.IsInstanceOf<InvalidOperationException>(caught, "rollback ゾーンの例外は伝播し続ける");
-			Assert.AreEqual(0, ScreenNavigator.Page.History.Count, "失敗した Push は追跡されない");
-		}
+		// rollback ゾーン（OnBeforeLoad 等）の例外伝播は FaultInjectionPushTests が補償 Unload 込みで検証している。
 
 		enum HookKind { BeforeEnter, AfterEnter, AfterExit }
 

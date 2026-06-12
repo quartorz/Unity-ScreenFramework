@@ -12,8 +12,9 @@ using Object = UnityEngine.Object;
 namespace Tests.ScreenFramework
 {
 	/// <summary>
-	/// PushAndAwait&lt;TResult&gt; が DialogPresenter.SetResult の値を受け取り、
-	/// preempt / DismissAll で OCE になることを検証する。
+	/// PushAndAwait&lt;TResult&gt; の結果配送（DialogPresenter.SetResult の受け取り、dialog from dialog、
+	/// 待機部に ct が効かない仕様）を検証する。preempt / DismissAll / Replace 等で awaiter が
+	/// OCE 決着する側は FaultInjectionPushAndAwaitTests が検証している。
 	/// </summary>
 	public sealed class PushAndAwaitTests
 	{
@@ -70,45 +71,6 @@ namespace Tests.ScreenFramework
 
 			var result = await task;
 			Assert.IsNull(result, "SetResult を呼ばないままだと default が返る");
-		});
-
-		[UnityTest]
-		public IEnumerator Throws_WhenPreemptedByNextPush() => UniTask.ToCoroutine(async () =>
-		{
-			await ScreenNavigator.Page.Push(new PlainScreenId());
-
-			// SlowDialog はロード中に詰まる。preempt しやすい状態を作る
-			var slowSource = new UniTaskCompletionSource<IScreenViewInstance>();
-			var task = ScreenNavigator.Page.PushAndAwait(new SlowDialogId(slowSource));
-
-			await UniTask.Yield();
-
-			// 別 Push で preempt
-			await ScreenNavigator.Page.Push(new PlainScreenId());
-
-			OperationCanceledException caught = null;
-			try { await task; }
-			catch (OperationCanceledException e) { caught = e; }
-			Assert.IsNotNull(caught, "preempt されたら OperationCanceledException");
-
-			// 取り残しの slowSource は最後に閉じる
-			slowSource.TrySetResult(new NopView());
-			await UniTask.Yield();
-		});
-
-		[UnityTest]
-		public IEnumerator Throws_WhenDismissedByDismissAll() => UniTask.ToCoroutine(async () =>
-		{
-			await ScreenNavigator.Page.Push(new PlainScreenId());
-			var task = ScreenNavigator.Page.PushAndAwait(new EchoDialogId("x"));
-			await UniTask.Yield();
-
-			await ScreenNavigator.Page.DismissAll();
-
-			OperationCanceledException caught = null;
-			try { await task; }
-			catch (OperationCanceledException e) { caught = e; }
-			Assert.IsNotNull(caught, "DismissAll で破棄されたら OCE");
 		});
 
 		[UnityTest]
@@ -327,23 +289,6 @@ namespace Tests.ScreenFramework
 		{
 			public override IScreenHandle CreateHandle(ScreenServices s) => new InstantHandle();
 			public override IScreenPresenter CreatePresenter(ScreenServices s) => new NullPresenter();
-		}
-
-		sealed record SlowDialogId(UniTaskCompletionSource<IScreenViewInstance> Source) : ScreenIdentifier<EchoResult>
-		{
-			public override IScreenHandle CreateHandle(ScreenServices s) => new SlowHandle(Source);
-			public override IScreenPresenter CreatePresenter(ScreenServices s) => new EchoDialogPresenter("never");
-		}
-
-		sealed class SlowHandle : IScreenHandle
-		{
-			readonly UniTaskCompletionSource<IScreenViewInstance> _src;
-			public SlowHandle(UniTaskCompletionSource<IScreenViewInstance> src) { _src = src; }
-			public async UniTask<IScreenViewInstance> Load(IProgress<float> p, CancellationToken ct)
-			{
-				using (ct.Register(() => _src.TrySetCanceled(ct))) return await _src.Task;
-			}
-			public UniTask Unload(CancellationToken ct) => UniTask.CompletedTask;
 		}
 
 		sealed class InstantHandle : IScreenHandle

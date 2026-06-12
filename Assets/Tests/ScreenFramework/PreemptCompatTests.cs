@@ -40,34 +40,8 @@ namespace Tests.ScreenFramework
 				Object.DestroyImmediate(mb.gameObject);
 		}
 
-		[UnityTest]
-		public IEnumerator Replace_WhileLoading_IsPreempted_ByNextPush() => UniTask.ToCoroutine(async () =>
-		{
-			// 前提：1 枚 Push 済み
-			await ScreenNavigator.Page.Push(new InstantScreenId(1));
-
-			var slowSource = new UniTaskCompletionSource<IScreenViewInstance>();
-			var slowHandle = new ControllableHandle(slowSource);
-			var slowReplace = ScreenNavigator.Page.Replace(new ControllableScreenId(slowHandle));
-
-			await UniTask.Yield();
-
-			var fastPush = ScreenNavigator.Page.Push(new InstantScreenId(2));
-
-			try { await slowReplace; Assert.Fail("slow Replace should have been cancelled"); }
-			catch (OperationCanceledException) { /* 期待 */ }
-
-			Assert.IsTrue(slowHandle.UnloadCalled, "preempt された Handle が Unload されること");
-
-			await fastPush;
-
-			Assert.IsInstanceOf<InstantScreenId>(ScreenNavigator.Page.Current);
-			Assert.AreEqual(2, ((InstantScreenId)ScreenNavigator.Page.Current).N);
-
-			// 取り残し防止：A のロードを後から完了させても安全
-			slowSource.TrySetResult(new NopView());
-			await UniTask.Yield();
-		});
+		// Replace の preempt は FaultInjectionCancelInterruptTests.
+		// Replace_PreemptedDuringLoad_LoserCompensated_AndOldScreenSurvives が履歴保全込みで検証している。
 
 		[UnityTest]
 		public IEnumerator Change_WhileLoading_IsPreempted_ByNextPush() => UniTask.ToCoroutine(async () =>

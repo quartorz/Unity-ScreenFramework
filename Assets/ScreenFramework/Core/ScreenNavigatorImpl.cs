@@ -299,9 +299,14 @@ namespace ScreenFramework
 				myDone.TrySetCanceled();
 				throw;
 			}
-			catch (Exception ex)
+			catch
 			{
-				myDone.TrySetException(ex);
+				// done シグナルは FIFO チェーンの順序制御専用で、自分が末尾だと誰にも await されない。
+				// TrySetException で例外を格納すると、未観測の ExceptionHolder が GC finalize 時に
+				// UnobservedTaskException として後のフレームに Debug.LogException を吐く
+				// （EditMode テストでは無関係な後続テストが Unhandled log message で落ちる）。
+				// 待つ側はエラーを握り潰すだけなので完了通知で十分。例外自体は throw で呼び出し元へ伝播する。
+				myDone.TrySetResult();
 				throw;
 			}
 			finally

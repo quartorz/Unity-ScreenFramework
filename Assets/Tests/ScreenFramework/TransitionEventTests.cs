@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Threading.Tasks;
 using Cysharp.Threading.Tasks;
 using NUnit.Framework;
@@ -153,20 +152,9 @@ namespace Tests.ScreenFramework
 			Assert.AreEqual(0, ScreenNavigator.Page.History.Count);
 		}
 
-		[Test]
-		public async Task FailedPush_EndEvent_HasSucceededFalse()
-		{
-			ScreenTransitionEvent? end = null;
-			ScreenNavigator.Page.OnTransitionEnd += e => end = e;
-
-			// ロールバック可能ゾーン（OnBeforeLoad）の例外で失敗させる。
-			var id = new ControllableScreenId(new InstantHandle(), () => new ThrowingOnBeforeLoadPresenter());
-			try { await ScreenNavigator.Page.Push(id); }
-			catch (Exception) { /* rollback ゾーンの例外は伝播する */ }
-
-			Assert.IsTrue(end.HasValue, "失敗しても End は発火する");
-			Assert.IsFalse(end.Value.Succeeded, "ロード失敗は Succeeded=false で通知される");
-		}
+		// 失敗 / キャンセルされた遷移の End イベント（Succeeded=false）は
+		// FaultInjectionInfraTests.FailedPush_StillFiresTransitionEnd_WithSucceededFalse /
+		// CanceledPush_FiresTransitionEnd_WithSucceededFalse が発火回数・Kind 込みで検証している。
 
 		[Test]
 		public async Task SuccessfulPush_EndEvent_HasSucceededTrue()

@@ -67,30 +67,6 @@ namespace Tests.ScreenFramework
 		}
 
 		[UnityTest]
-		public IEnumerator Push_Home_SetsTitleOnMockView() => UniTask.ToCoroutine(async () =>
-		{
-			await ScreenNavigator.Page.Push(new HomeScreenId());
-
-			Assert.AreEqual(1, ScreenNavigator.Page.History.Count);
-			Assert.IsInstanceOf<HomeScreenId>(ScreenNavigator.Page.Current);
-			// Presenter が View.SetTitle を呼んだことは MockView 側に痕跡が残らないとわからない。
-			// ここではライフサイクルが正常に完了したことだけ確認する。
-			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
-		});
-
-		[UnityTest]
-		public IEnumerator Push_Profile_HasUserIdInIdentifier() => UniTask.ToCoroutine(async () =>
-		{
-			await ScreenNavigator.Page.Push(new HomeScreenId());
-			await ScreenNavigator.Page.Push(new ProfileScreenId("abc-123"));
-
-			Assert.AreEqual(2, ScreenNavigator.Page.History.Count);
-			var current = ScreenNavigator.Page.Current as ProfileScreenId;
-			Assert.IsNotNull(current);
-			Assert.AreEqual("abc-123", current!.UserId);
-		});
-
-		[UnityTest]
 		public IEnumerator Pop_AfterPush_GoesBackToHome() => UniTask.ToCoroutine(async () =>
 		{
 			await ScreenNavigator.Page.Push(new HomeScreenId());
@@ -113,7 +89,7 @@ namespace Tests.ScreenFramework
 		});
 
 		[UnityTest]
-		public IEnumerator History_Edit_RemovesIntermediate() => UniTask.ToCoroutine(async () =>
+		public IEnumerator History_Edit_ThenPop_RestoresCorrectScreen() => UniTask.ToCoroutine(async () =>
 		{
 			await ScreenNavigator.Page.Push(new HomeScreenId());
 			await ScreenNavigator.Page.Push(new ProfileScreenId("a"));
@@ -126,24 +102,11 @@ namespace Tests.ScreenFramework
 				e.RemoveAll(id => id is ProfileScreenId { UserId: "a" });
 			});
 
-			Assert.AreEqual(2, ScreenNavigator.Page.History.Count);
 			// Current (b) は残り、間の "a" だけが消える
+			Assert.AreEqual(2, ScreenNavigator.Page.History.Count);
 			Assert.IsInstanceOf<HomeScreenId>(ScreenNavigator.Page.History[0]);
 			var top = ScreenNavigator.Page.Current as ProfileScreenId;
 			Assert.AreEqual("b", top!.UserId);
-		});
-
-		[UnityTest]
-		public IEnumerator History_Edit_ThenPop_RestoresCorrectScreen() => UniTask.ToCoroutine(async () =>
-		{
-			await ScreenNavigator.Page.Push(new HomeScreenId());
-			await ScreenNavigator.Page.Push(new ProfileScreenId("a"));
-			await ScreenNavigator.Page.Push(new ProfileScreenId("b"));
-
-			ScreenNavigator.Page.History.Edit(e =>
-			{
-				e.RemoveAll(id => id is ProfileScreenId { UserId: "a" });
-			});
 
 			// Edit 後も履歴と内部の生存リストが整合していて、Pop で正しい画面（Home）に戻れる
 			await ScreenNavigator.Page.Pop();

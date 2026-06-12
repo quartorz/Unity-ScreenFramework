@@ -40,40 +40,9 @@ namespace Tests.ScreenFramework
 			DestroyContainer(_pageContainer);
 		}
 
-		[UnityTest]
-		public IEnumerator Push_WhileLoading_IsPreempted_ByNextPush() => UniTask.ToCoroutine(async () =>
-		{
-			var slowSource = new UniTaskCompletionSource<IScreenViewInstance>();
-			var handleA = new ControllableHandle(slowSource);
-			var idA = new ControllableScreenId(handleA);
-
-			// 完了させない Push を開始
-			var pushA = ScreenNavigator.Page.Push(idA);
-
-			// 1 フレーム進めて Load 中まで進める
-			await UniTask.Yield();
-
-			// 別の Push（モック即時完了）で preempt
-			var pushB = ScreenNavigator.Page.Push(new HomeScreenId());
-
-			// A が Cancelled で抜けるはず
-			try { await pushA; Assert.Fail("pushA should have been cancelled"); }
-			catch (OperationCanceledException) { /* 期待動作 */ }
-
-			// ハンドル A の Unload が呼ばれていてリークしないことを確認
-			Assert.IsTrue(handleA.UnloadCalled, "Handle A should have been unloaded on cancellation");
-
-			await pushB;
-
-			// B が現在画面
-			Assert.IsInstanceOf<HomeScreenId>(ScreenNavigator.Page.Current);
-			Assert.AreEqual(1, ScreenNavigator.Page.History.Count);
-			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
-
-			// 取り残し防止のため A の Load を後から完了させても安全
-			slowSource.TrySetResult(new MockScreenViewInstanceProxy());
-			await UniTask.Yield();
-		});
+		// 基本の「Load 中 Push が次の Push に preempt される」ケースは
+		// FaultInjectionCancelInterruptTests.Preempt_DuringLoad_LoserIsRolledBack_WinnerWins が
+		// 補償(Unload + OnAfterUnload)込みで検証している。
 
 		[UnityTest]
 		public IEnumerator Queue_WaitsForCurrent() => UniTask.ToCoroutine(async () =>

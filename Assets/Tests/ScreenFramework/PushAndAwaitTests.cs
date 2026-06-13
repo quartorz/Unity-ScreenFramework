@@ -12,9 +12,12 @@ using Object = UnityEngine.Object;
 namespace Tests.ScreenFramework
 {
 	/// <summary>
-	/// PushAndAwait&lt;TResult&gt; の結果配送（DialogPresenter.SetResult の受け取り、dialog from dialog、
-	/// 待機部に ct が効かない仕様）を検証する。preempt / DismissAll / Replace 等で awaiter が
-	/// OCE 決着する側は FaultInjectionPushAndAwaitTests が検証している。
+	/// PushAndAwait&lt;TResult&gt; のうち、<b>MBT 語彙外</b>の側面だけ:
+	/// Stack mode での複数 awaiter の混線防止、KeepOnCover での dialog-from-dialog、
+	/// suspended のまま中間 Close される場合の last-chance 配送、待機部に ct が効かない仕様。
+	/// 正常 Pop での配送（SetResult / default）と DestroyOnCover 上書きでの OCE 決着は、
+	/// モデルベーステスト（<c>ModelBased/</c>）の P4 が網羅するため引退した
+	/// （2026-06-13。docs/MODEL-BASED-TESTING.md の引退節）。
 	/// </summary>
 	public sealed class PushAndAwaitTests
 	{
@@ -41,37 +44,6 @@ namespace Tests.ScreenFramework
 			if (_pageContainer is MonoBehaviour mb && mb != null)
 				Object.DestroyImmediate(mb.gameObject);
 		}
-
-		[UnityTest]
-		public IEnumerator ReturnsValue_WhenDialogSetsResult() => UniTask.ToCoroutine(async () =>
-		{
-			// dialog を 1 枚積めるよう先に下を 1 枚 Push
-			await ScreenNavigator.Page.Push(new PlainScreenId());
-
-			var task = ScreenNavigator.Page.PushAndAwait(new EchoDialogId("hello"));
-
-			// 別タスクで Pop を呼んで dialog を閉じさせる
-			await UniTask.Yield();
-			await ScreenNavigator.Page.Pop();
-
-			var result = await task;
-			Assert.IsNotNull(result);
-			Assert.AreEqual("hello", result.Text);
-		});
-
-		[UnityTest]
-		public IEnumerator ReturnsDefault_WhenDialogClosesWithoutSetResult() => UniTask.ToCoroutine(async () =>
-		{
-			await ScreenNavigator.Page.Push(new PlainScreenId());
-
-			var task = ScreenNavigator.Page.PushAndAwait(new EchoDialogId(text: null /* SetResult を呼ばない */));
-
-			await UniTask.Yield();
-			await ScreenNavigator.Page.Pop();
-
-			var result = await task;
-			Assert.IsNull(result, "SetResult を呼ばないままだと default が返る");
-		});
 
 		[UnityTest]
 		public IEnumerator ConcurrentAwaits_DontMix() => UniTask.ToCoroutine(async () =>
@@ -108,27 +80,6 @@ namespace Tests.ScreenFramework
 		// =====================================================================
 		// 項目 5: Dialog レイヤーの DestroyOnCover × PushAndAwait
 		// =====================================================================
-
-		[Test]
-		public async Task DialogFromDialog_DestroyOnCover_AwaiterDies_BehaviorSpec()
-		{
-			// フレームワークの挙動仕様: Cover + DestroyOnCover の設定下では、
-			// PushAndAwait 中のダイアログ A 上に B を Push すると、A の awaiter は
-			// TrySetCanceled されて OCE で死ぬ。これは仕様通り。
-			// 「ダイアログからダイアログ」を成立させたい場合は KeepOnCover を使うこと
-			// (下の DialogFromDialog_KeepOnCover_AwaiterSurvivesUntilOwnPop 参照)。
-			await ScreenNavigator.Dialog.Push(new PlainScreenId());
-			var awaitA = ScreenNavigator.Dialog.PushAndAwait(new EchoDialogId("A"));
-			await UniTask.Yield();
-
-			await ScreenNavigator.Dialog.Push(new PlainScreenId());
-
-			OperationCanceledException oce = null;
-			try { await awaitA; }
-			catch (OperationCanceledException e) { oce = e; }
-
-			Assert.IsNotNull(oce, "DestroyOnCover では下の awaiter は OCE で死ぬ仕様");
-		}
 
 		[Test]
 		public async Task DialogFromDialog_KeepOnCover_AwaiterSurvivesUntilOwnPop()

@@ -54,6 +54,8 @@ namespace Tests.ScreenFramework.ModelBased
 		SpuriousOceOnBeforeLoad,
 		/// <summary>OnBeforeEnter（commit ゾーン）で投げる。吸収されて遷移は完走する契約。</summary>
 		EnterHookThrows,
+		/// <summary>OnAfterEnter（commit ゾーンの後段 hook）で投げる。同じく吸収されて完走する契約。</summary>
+		OnAfterEnterThrows,
 		/// <summary>PopTo の predicate で投げる。スタック無傷で伝播する契約。</summary>
 		PredicateThrows,
 	}
@@ -69,6 +71,10 @@ namespace Tests.ScreenFramework.ModelBased
 		/// <summary>復元ロード（2 回目以降の handle.Load）を常に失敗させる。dormant top 契約（C10）の入口。</summary>
 		RestoreLoadFails = 8,
 		ResumeThrows = 16,
+		/// <summary>OnAfterExit（退場の commit ゾーン後段）で投げる。吸収されて退場は完遂する契約。</summary>
+		AfterExitThrows = 32,
+		/// <summary>OnSuspend（KeepOnCover で覆われる側）で投げる。吸収されて suspend は成立する契約。</summary>
+		SuspendThrows = 64,
 	}
 
 	public sealed class MbtScreenSpec
@@ -245,7 +251,7 @@ namespace Tests.ScreenFramework.ModelBased
 			_ => MbtOpKind.DismissAll,
 		};
 
-		static MbtOpFault PickPushFault(Random rng) => rng.Next(7) switch
+		static MbtOpFault PickPushFault(Random rng) => rng.Next(8) switch
 		{
 			0 => MbtOpFault.ConfigureThrows,
 			1 => MbtOpFault.OnInitializeThrows,
@@ -253,16 +259,19 @@ namespace Tests.ScreenFramework.ModelBased
 			3 => MbtOpFault.LoadThrows,
 			4 => MbtOpFault.OnAfterLoadThrows,
 			5 => MbtOpFault.SpuriousOceOnBeforeLoad,
-			_ => MbtOpFault.EnterHookThrows,
+			6 => MbtOpFault.EnterHookThrows,
+			_ => MbtOpFault.OnAfterEnterThrows,
 		};
 
-		static MbtScreenFaults PickScreenFault(Random rng) => rng.Next(5) switch
+		static MbtScreenFaults PickScreenFault(Random rng) => rng.Next(7) switch
 		{
 			0 => MbtScreenFaults.BeforeExitThrows,
 			1 => MbtScreenFaults.UnloadThrows,
 			2 => MbtScreenFaults.AfterUnloadThrows,
 			3 => MbtScreenFaults.RestoreLoadFails,
-			_ => MbtScreenFaults.ResumeThrows,
+			4 => MbtScreenFaults.ResumeThrows,
+			5 => MbtScreenFaults.AfterExitThrows,
+			_ => MbtScreenFaults.SuspendThrows,
 		};
 	}
 }

@@ -205,9 +205,24 @@ namespace Tests.ScreenFramework.ModelBased
 			return UniTask.CompletedTask;
 		}
 
+		UniTask IScreenPresenter.OnAfterEnter(INavigationDataReader r, ITransitionContext x, CancellationToken ct)
+			=> _op?.Fault == MbtOpFault.OnAfterEnterThrows
+				? throw new InvalidOperationException($"mbt: OnAfterEnter fault ({_spec.Label})")
+				: UniTask.CompletedTask;
+
 		UniTask IScreenPresenter.OnBeforeExit(INavigationDataWriter w, ITransitionContext x, CancellationToken ct)
 			=> (_spec.Faults & MbtScreenFaults.BeforeExitThrows) != 0
 				? throw new InvalidOperationException($"mbt: OnBeforeExit fault ({_spec.Label})")
+				: UniTask.CompletedTask;
+
+		UniTask IScreenPresenter.OnAfterExit(INavigationDataWriter w, ITransitionContext x, CancellationToken ct)
+			=> (_spec.Faults & MbtScreenFaults.AfterExitThrows) != 0
+				? throw new InvalidOperationException($"mbt: OnAfterExit fault ({_spec.Label})")
+				: UniTask.CompletedTask;
+
+		UniTask IScreenPresenter.OnSuspend(CancellationToken ct)
+			=> (_spec.Faults & MbtScreenFaults.SuspendThrows) != 0
+				? throw new InvalidOperationException($"mbt: OnSuspend fault ({_spec.Label})")
 				: UniTask.CompletedTask;
 
 		UniTask IScreenPresenter.OnResume(CancellationToken ct)
@@ -264,9 +279,24 @@ namespace Tests.ScreenFramework.ModelBased
 			return UniTask.CompletedTask;
 		}
 
+		protected override UniTask OnAfterEnter(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct)
+			=> _op?.Fault == MbtOpFault.OnAfterEnterThrows
+				? throw new InvalidOperationException($"mbt: OnAfterEnter fault ({_spec.Label})")
+				: UniTask.CompletedTask;
+
 		protected override UniTask OnBeforeExitCore(ITransitionContext ctx, CancellationToken ct)
 			=> (_spec.Faults & MbtScreenFaults.BeforeExitThrows) != 0
 				? throw new InvalidOperationException($"mbt: OnBeforeExit fault ({_spec.Label})")
+				: UniTask.CompletedTask;
+
+		protected override UniTask OnAfterExit(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct)
+			=> (_spec.Faults & MbtScreenFaults.AfterExitThrows) != 0
+				? throw new InvalidOperationException($"mbt: OnAfterExit fault ({_spec.Label})")
+				: UniTask.CompletedTask;
+
+		protected override UniTask OnSuspend(CancellationToken ct)
+			=> (_spec.Faults & MbtScreenFaults.SuspendThrows) != 0
+				? throw new InvalidOperationException($"mbt: OnSuspend fault ({_spec.Label})")
 				: UniTask.CompletedTask;
 
 		protected override UniTask OnResume(CancellationToken ct)

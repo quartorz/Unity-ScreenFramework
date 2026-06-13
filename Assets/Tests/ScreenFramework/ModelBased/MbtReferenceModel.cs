@@ -264,6 +264,8 @@ namespace Tests.ScreenFramework.ModelBased
 							AddEnd(plan.Kind, ok: false);
 							SettleChain(op, MbtOutcome.Oce);
 							return;
+						// EnterHookThrows（OnBeforeEnter）/ OnAfterEnterThrows は commit ゾーンの hook。
+						// ここで return せず素通りさせる = GuardedHook に吸収され遷移は完走する（C1）。
 					}
 					if (plan.Gate == MbtGateMode.HoldLoad && !op.GateReleased)
 					{

@@ -173,6 +173,38 @@ namespace Tests.ScreenFramework.ModelBased
 		}
 
 		[Test]
+		public async Task Pinned_CommitZoneAfterEnterHook_IsAbsorbed_AndScreenIsTracked()
+		{
+			// OnAfterEnter（commit ゾーン後段）の例外は吸収され、画面は孤児にならず追跡される（C1）。
+			// 旧 CommitZoneGuardTests.Push_OnAfterEnterThrows の引退先。
+			var sc = new MbtScenario();
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 1, Label = "S1" } });
+			sc.Ops.Add(new MbtOp
+			{
+				Kind = MbtOpKind.Push,
+				Screen = new MbtScreenSpec { Uid = 2, Label = "S2" },
+				Fault = MbtOpFault.OnAfterEnterThrows,
+			});
+			await AssertScenario(sc);
+		}
+
+		[Test]
+		public async Task Pinned_CommitZoneAfterExitHook_PopStillCompletes()
+		{
+			// OnAfterExit（退場の commit ゾーン後段）の例外は吸収され、Pop は Current 更新まで完走する（C1）。
+			// 旧 CommitZoneGuardTests.Pop_OnAfterExitThrows の引退先。
+			var sc = new MbtScenario();
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 1, Label = "S1" } });
+			sc.Ops.Add(new MbtOp
+			{
+				Kind = MbtOpKind.Push,
+				Screen = new MbtScreenSpec { Uid = 2, Label = "S2", Faults = MbtScreenFaults.AfterExitThrows },
+			});
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Pop });
+			await AssertScenario(sc);
+		}
+
+		[Test]
 		public async Task Pinned_DialogDelivery_NormalPopDelivers_SweepCancels()
 		{
 			// C4: 正常 Pop で結果配送、Replace による差し替えで OCE。

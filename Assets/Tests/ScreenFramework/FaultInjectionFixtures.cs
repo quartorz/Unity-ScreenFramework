@@ -83,19 +83,6 @@ namespace Tests.ScreenFramework
 			=> throw new InvalidOperationException("fault injected at handle.Unload");
 	}
 
-	/// <summary>Load も補償の Unload も失敗する handle(二重フォールト用)。</summary>
-	internal sealed class FaultyLoadAndUnloadHandle : IScreenHandle
-	{
-		public bool UnloadCalled { get; private set; }
-		public UniTask<IScreenViewInstance> Load(IProgress<float> p, CancellationToken c)
-			=> UniTask.FromException<IScreenViewInstance>(new InvalidOperationException("fault injected at handle.Load (async)"));
-		public UniTask Unload(CancellationToken c)
-		{
-			UnloadCalled = true;
-			throw new ApplicationException("fault injected at compensating Unload");
-		}
-	}
-
 	/// <summary>Load が「成功」しつつ null view を返す契約違反 handle。</summary>
 	internal sealed class NullViewHandle : IScreenHandle
 	{
@@ -112,28 +99,6 @@ namespace Tests.ScreenFramework
 		public WrappingHandle(object view) => _view = view;
 		public UniTask<IScreenViewInstance> Load(IProgress<float> p, CancellationToken c)
 			=> UniTask.FromResult(ScreenTesting.ViewOf(_view));
-		public UniTask Unload(CancellationToken c) => UniTask.CompletedTask;
-	}
-
-	/// <summary>
-	/// 1 回目の Load は即成功し、2 回目(Pop の復元ロード)だけ外部から完了を制御できる handle。
-	/// 完走必須ゾーンの復元ロード中にキャンセルをぶつけるために使う。
-	/// </summary>
-	internal sealed class SecondLoadControllableHandle : IScreenHandle
-	{
-		readonly UniTaskCompletionSource<IScreenViewInstance> _secondLoad = new();
-		readonly UniTaskCompletionSource _secondLoadStarted = new();
-		int _loadCount;
-		public UniTask SecondLoadStarted => _secondLoadStarted.Task;
-		public void CompleteSecondLoad() => _secondLoad.TrySetResult(new NopView());
-
-		public UniTask<IScreenViewInstance> Load(IProgress<float> p, CancellationToken c)
-		{
-			if (++_loadCount == 1) return UniTask.FromResult<IScreenViewInstance>(new NopView());
-			_secondLoadStarted.TrySetResult();
-			return _secondLoad.Task;
-		}
-
 		public UniTask Unload(CancellationToken c) => UniTask.CompletedTask;
 	}
 
@@ -188,118 +153,6 @@ namespace Tests.ScreenFramework
 		UniTask IScreenPresenter.OnSuspend(CancellationToken c) => Step("Suspend");
 		UniTask IScreenPresenter.OnResume(CancellationToken c) => Step("Resume");
 		UniTask IScreenPresenter.OnAfterUnload(INavigationDataWriter w, CancellationToken c) => Step("AfterUnload");
-	}
-
-	/// <summary>OnAfterUnload(補償 hook)が失敗する presenter。呼出有無も記録する。</summary>
-	internal sealed class FaultyAfterUnloadPresenter : IScreenPresenter
-	{
-		public bool OnAfterUnloadCalled { get; private set; }
-
-		UniTask IScreenPresenter.OnAfterUnload(INavigationDataWriter w, CancellationToken c)
-		{
-			OnAfterUnloadCalled = true;
-			throw new InvalidOperationException("fault injected at compensating AfterUnload");
-		}
-	}
-
-	/// <summary>
-	/// 指定した hook で外部 CancellationTokenSource を Cancel しつつ、自分は正常完了する presenter。
-	/// ct を観測しない「行儀の悪い hook」とキャンセルの競合を再現する。全 hook の呼出も記録する。
-	/// </summary>
-	internal sealed class CancelingPresenter : IScreenPresenter
-	{
-		readonly string _cancelAt;
-		readonly CancellationTokenSource _cts;
-		public List<string> Events { get; } = new();
-		public CancelingPresenter(string cancelAt, CancellationTokenSource cts)
-		{
-			_cancelAt = cancelAt;
-			_cts = cts;
-		}
-
-		UniTask Step(string name)
-		{
-			Events.Add(name);
-			if (name == _cancelAt) _cts.Cancel();
-			return UniTask.CompletedTask;
-		}
-
-		UniTask IScreenPresenter.OnInitialize(CancellationToken c) => Step("Initialize");
-		UniTask IScreenPresenter.OnBeforeLoad(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("BeforeLoad");
-		UniTask IScreenPresenter.OnAfterLoad(IScreenViewInstance v, INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("AfterLoad");
-		UniTask IScreenPresenter.OnBeforeEnter(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("BeforeEnter");
-		UniTask IScreenPresenter.OnAfterEnter(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("AfterEnter");
-		UniTask IScreenPresenter.OnBeforeExit(INavigationDataWriter w, ITransitionContext x, CancellationToken c) => Step("BeforeExit");
-		UniTask IScreenPresenter.OnAfterExit(INavigationDataWriter w, ITransitionContext x, CancellationToken c) => Step("AfterExit");
-		UniTask IScreenPresenter.OnSuspend(CancellationToken c) => Step("Suspend");
-		UniTask IScreenPresenter.OnResume(CancellationToken c) => Step("Resume");
-		UniTask IScreenPresenter.OnAfterUnload(INavigationDataWriter w, CancellationToken c) => Step("AfterUnload");
-	}
-
-	/// <summary>OnBeforeLoad で外部 cts を Cancel しつつ自分は正常完了する(ct を観測しない)presenter。</summary>
-	internal sealed class CancelOnBeforeLoadPresenter : IScreenPresenter
-	{
-		readonly CancellationTokenSource _cts;
-		public bool OnAfterUnloadCalled { get; private set; }
-		public CancelOnBeforeLoadPresenter(CancellationTokenSource cts) => _cts = cts;
-
-		UniTask IScreenPresenter.OnBeforeLoad(INavigationDataReader r, ITransitionContext x, CancellationToken c)
-		{
-			_cts.Cancel();
-			return UniTask.CompletedTask;
-		}
-
-		UniTask IScreenPresenter.OnAfterUnload(INavigationDataWriter w, CancellationToken c)
-		{
-			OnAfterUnloadCalled = true;
-			return UniTask.CompletedTask;
-		}
-	}
-
-	/// <summary>
-	/// 指定した hook で外部キャンセルなしに OperationCanceledException を投げる presenter。
-	/// キャンセル経路との混線(偽 OCE の扱い)を見るために使う。
-	/// </summary>
-	internal sealed class SpuriousOcePresenter : IScreenPresenter
-	{
-		readonly string _faultAt;
-		public SpuriousOcePresenter(string faultAt) => _faultAt = faultAt;
-
-		UniTask Step(string name)
-		{
-			if (name == _faultAt) throw new OperationCanceledException($"spurious OCE injected at {name}");
-			return UniTask.CompletedTask;
-		}
-
-		UniTask IScreenPresenter.OnInitialize(CancellationToken c) => Step("Initialize");
-		UniTask IScreenPresenter.OnBeforeLoad(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("BeforeLoad");
-		UniTask IScreenPresenter.OnAfterLoad(IScreenViewInstance v, INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("AfterLoad");
-		UniTask IScreenPresenter.OnBeforeEnter(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("BeforeEnter");
-		UniTask IScreenPresenter.OnAfterEnter(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("AfterEnter");
-		UniTask IScreenPresenter.OnBeforeExit(INavigationDataWriter w, ITransitionContext x, CancellationToken c) => Step("BeforeExit");
-		UniTask IScreenPresenter.OnAfterExit(INavigationDataWriter w, ITransitionContext x, CancellationToken c) => Step("AfterExit");
-	}
-
-	/// <summary>
-	/// OnBeforeLoad で ct を正しく観測しながら永久に待つ presenter(割り込みが hook の await 境界に
-	/// 刺さるケースの注入用)。OnAfterUnload の呼出も記録する。
-	/// </summary>
-	internal sealed class HangingBeforeLoadPresenter : IScreenPresenter
-	{
-		public bool OnAfterUnloadCalled { get; private set; }
-
-		UniTask IScreenPresenter.OnBeforeLoad(INavigationDataReader r, ITransitionContext x, CancellationToken c)
-		{
-			var tcs = new UniTaskCompletionSource();
-			c.Register(() => tcs.TrySetCanceled(c));
-			return tcs.Task;
-		}
-
-		UniTask IScreenPresenter.OnAfterUnload(INavigationDataWriter w, CancellationToken c)
-		{
-			OnAfterUnloadCalled = true;
-			return UniTask.CompletedTask;
-		}
 	}
 
 	/// <summary>
@@ -477,61 +330,5 @@ namespace Tests.ScreenFramework
 	{
 		public override bool Match(IScreenIdentifier id, ITransitionContext ctx)
 			=> throw new InvalidOperationException("fault injected at Matcher.Match");
-	}
-
-	/// <summary>CreateHandle が必ず throw する identifier(factory 境界のフォールト注入用)。</summary>
-	internal sealed record ThrowingHandleScreenId : ScreenIdentifier
-	{
-		public override IScreenHandle CreateHandle(ScreenServices s)
-			=> throw new InvalidOperationException("fault injected at CreateHandle");
-		public override IScreenPresenter CreatePresenter(ScreenServices s) => new NullPresenter();
-	}
-
-	/// <summary>Load が必ず失敗する、結果を返すダイアログの identifier(PushAndAwait 用)。</summary>
-	internal sealed record FaultyLoadDialogId : ScreenIdentifier<EchoResult>
-	{
-		public override IScreenHandle CreateHandle(ScreenServices s) => new FaultyLoadHandle();
-		public override IScreenPresenter CreatePresenter(ScreenServices s) => new NullPresenter();
-	}
-
-	/// <summary>任意の handle を差し込める、結果を返すダイアログの identifier(PushAndAwait のキャンセル系テスト用)。</summary>
-	internal sealed record ControllableDialogId(IScreenHandle Handle) : ScreenIdentifier<EchoResult>
-	{
-		public override IScreenHandle CreateHandle(ScreenServices s) => Handle;
-		public override IScreenPresenter CreatePresenter(ScreenServices s) => new NullPresenter();
-	}
-
-	/// <summary>結果書き込み後に退場 hook が落ちる、結果を返すダイアログの identifier。</summary>
-	internal sealed record FaultyExitEchoDialogId : ScreenIdentifier<EchoResult>
-	{
-		public override IScreenHandle CreateHandle(ScreenServices s) => new InstantHandle();
-		public override IScreenPresenter CreatePresenter(ScreenServices s) => new ResultThenThrowDialogPresenter();
-	}
-
-	/// <summary>退場 hook が落ちつつ OnAfterUnload で結果を書く、結果を返すダイアログの identifier。</summary>
-	internal sealed record LastChanceEchoDialogId : ScreenIdentifier<EchoResult>
-	{
-		public override IScreenHandle CreateHandle(ScreenServices s) => new InstantHandle();
-		public override IScreenPresenter CreatePresenter(ScreenServices s) => new LastChanceEchoPresenter();
-	}
-
-	/// <summary>OnBeforeExit で結果を書き、teardown（OnAfterUnload）で throw する presenter（二重 teardown フォールト用）。</summary>
-	internal sealed class ResultThenFaultyTeardownPresenter : IScreenPresenter
-	{
-		UniTask IScreenPresenter.OnBeforeExit(INavigationDataWriter w, ITransitionContext x, CancellationToken c)
-		{
-			w.Write(new EchoResult { Text = "delivered" });
-			return UniTask.CompletedTask;
-		}
-
-		UniTask IScreenPresenter.OnAfterUnload(INavigationDataWriter w, CancellationToken c)
-			=> throw new InvalidOperationException("fault injected at AfterUnload (teardown dialog)");
-	}
-
-	/// <summary>退場で結果を書いた後、handle.Unload と OnAfterUnload の両方が落ちる、結果を返すダイアログの identifier。</summary>
-	internal sealed record DoubleTeardownFaultDialogId : ScreenIdentifier<EchoResult>
-	{
-		public override IScreenHandle CreateHandle(ScreenServices s) => new FaultyUnloadHandle();
-		public override IScreenPresenter CreatePresenter(ScreenServices s) => new ResultThenFaultyTeardownPresenter();
 	}
 }

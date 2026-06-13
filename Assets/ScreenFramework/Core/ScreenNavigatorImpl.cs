@@ -279,6 +279,8 @@ namespace ScreenFramework
 
 		async UniTask Run(InterruptPriority priority, CancellationToken externalCt, Func<CancellationToken, UniTask> body)
 		{
+			externalCt.ThrowIfCancellationRequested();
+			
 			var prevDone = _currentDoneSignal;
 			var myCts = CancellationTokenSource.CreateLinkedTokenSource(externalCt);
 			var myDone = new UniTaskCompletionSource();

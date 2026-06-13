@@ -245,32 +245,6 @@ namespace Tests.ScreenFramework
 		}
 	}
 
-	/// <summary>OnBeforeExit で結果を書き込み、直後の OnAfterExit で throw する結果ダイアログ用 presenter。</summary>
-	internal sealed class ResultThenThrowDialogPresenter : IScreenPresenter
-	{
-		UniTask IScreenPresenter.OnBeforeExit(INavigationDataWriter w, ITransitionContext x, CancellationToken c)
-		{
-			w.Write(new EchoResult { Text = "delivered" });
-			return UniTask.CompletedTask;
-		}
-
-		UniTask IScreenPresenter.OnAfterExit(INavigationDataWriter w, ITransitionContext x, CancellationToken c)
-			=> throw new InvalidOperationException("fault injected at AfterExit (dialog)");
-	}
-
-	/// <summary>OnBeforeExit で throw し、OnAfterUnload(最後の書き込みチャンス)で結果を書く presenter。</summary>
-	internal sealed class LastChanceEchoPresenter : IScreenPresenter
-	{
-		UniTask IScreenPresenter.OnBeforeExit(INavigationDataWriter w, ITransitionContext x, CancellationToken c)
-			=> throw new InvalidOperationException("fault injected at BeforeExit (last-chance dialog)");
-
-		UniTask IScreenPresenter.OnAfterUnload(INavigationDataWriter w, CancellationToken c)
-		{
-			w.Write(new EchoResult { Text = "last-chance" });
-			return UniTask.CompletedTask;
-		}
-	}
-
 	// ===========================================================================
 	// view / matcher / identifier 系のフォールトダブル
 	// ===========================================================================

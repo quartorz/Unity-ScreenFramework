@@ -6,7 +6,7 @@ using Sample;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
-namespace Tests.ScreenFramework
+namespace Tests.Sample
 {
 	/// <summary>
 	/// Sample 側の入力遮蔽板 InputShield / ShieldRegistry / WithLoadingShield の挙動を検証する。

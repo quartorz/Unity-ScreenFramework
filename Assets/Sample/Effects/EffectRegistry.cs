@@ -1,9 +1,10 @@
 using System;
 using System.Collections.Generic;
+using ScreenFramework;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 
-namespace ScreenFramework
+namespace Sample.Effects
 {
 	/// <summary>
 	/// 遷移演出（Effect）の選択表。各行は <c>(from Matcher, to Matcher, Effect prefab AssetReference)</c>。
@@ -12,7 +13,7 @@ namespace ScreenFramework
 	/// 0 件マッチは素通し（Effect なしで遷移続行）。
 	/// </summary>
 	[CreateAssetMenu(fileName = "EffectRegistry", menuName = "ScreenFramework/Effect Registry")]
-	public sealed class EffectRegistry : ScriptableObject
+	public sealed class EffectRegistry : ScriptableObject, IEffectRegistry
 	{
 		[Serializable]
 		public struct Row
@@ -89,18 +90,6 @@ namespace ScreenFramework
 			Debug.LogWarning(
 				$"[ScreenFramework] EffectRegistry '{name}' row {rowIndex} matched (from={from}, to={to}) " +
 				"but its EffectPrefab reference is missing/invalid. Skipping it; a less-specific row or no effect will be used.");
-		}
-
-		public readonly struct ResolveResult
-		{
-			public bool HasMatch { get; }
-			public AssetReferenceGameObject EffectPrefab { get; }
-
-			public ResolveResult(bool hasMatch, AssetReferenceGameObject prefab)
-			{
-				HasMatch = hasMatch;
-				EffectPrefab = prefab;
-			}
 		}
 	}
 }

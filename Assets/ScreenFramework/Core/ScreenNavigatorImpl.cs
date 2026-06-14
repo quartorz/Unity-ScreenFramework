@@ -385,7 +385,7 @@ namespace ScreenFramework
 		async UniTask<EffectRunner> ResolveAndInstantiateEffectAsync(ITransitionContext ctx, CancellationToken ct)
 		{
 			if (_config.Registry == null) return null;
-			EffectRegistry.ResolveResult resolved;
+			ResolveResult resolved;
 			try
 			{
 				resolved = _config.Registry.Resolve(ctx.From, ctx.To, ctx);

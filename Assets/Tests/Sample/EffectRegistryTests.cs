@@ -1,12 +1,15 @@
+using System.Text.RegularExpressions;
 using NUnit.Framework;
+using Sample.Effects;
 using ScreenFramework;
 using UnityEngine;
+using UnityEngine.TestTools;
 
-namespace Tests.ScreenFramework
+namespace Tests.Sample
 {
 	/// <summary>
 	/// <see cref="EffectRegistry"/> の Resolve ロジック。null=wildcard、most-specific 勝ち、同点 first-wins、
-	/// 0 件マッチで <c>HasMatch=false</c> が返ることを確認する。
+	/// 0 件マッチで <c>HasMatch=false</c> が返ること、および Matcher の例外が行ごとに吸収されることを確認する。
 	/// </summary>
 	public sealed class EffectRegistryTests
 	{
@@ -122,6 +125,23 @@ namespace Tests.ScreenFramework
 			var reg = NewRegistry(new EffectRegistry.Row { From = fromMatcher, To = null, EffectPrefab = pref });
 			var result = reg.Resolve(from: null, to: new IdA(), NewCtx(null, new IdA()));
 			Assert.IsFalse(result.HasMatch);
+		}
+
+		[Test]
+		public void Resolve_MatcherThrows_IsAbsorbed_AndRowSkipped()
+		{
+			// Matcher.Match の例外は行ごとに吸収され、その行は skip される（より緩い行 or no-match に化ける）。
+			LogAssert.Expect(LogType.Exception, new Regex("boom in matcher"));
+			var wildcard = new UnityEngine.AddressableAssets.AssetReferenceGameObject(System.Guid.NewGuid().ToString());
+			var throwing = FakeMatcher.Create(_ => throw new System.InvalidOperationException("boom in matcher"));
+			var reg = NewRegistry(
+				new EffectRegistry.Row { From = throwing, To = null, EffectPrefab = new UnityEngine.AddressableAssets.AssetReferenceGameObject(System.Guid.NewGuid().ToString()) },
+				new EffectRegistry.Row { From = null, To = null, EffectPrefab = wildcard });
+
+			var result = reg.Resolve(new IdA(), new IdB(), NewCtx(new IdA(), new IdB()));
+
+			Assert.IsTrue(result.HasMatch, "throw した行は skip され wildcard 行に化ける");
+			Assert.AreSame(wildcard, result.EffectPrefab);
 		}
 
 		// TransitionContext を直接 new できるよう、internal を見るための薄いラッパ

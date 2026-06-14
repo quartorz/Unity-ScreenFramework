@@ -22,16 +22,6 @@ namespace Tests.ScreenFramework
 		public static UnityEngine.AddressableAssets.AssetReferenceGameObject NewAssetRef()
 			=> new(Guid.NewGuid().ToString());
 
-		/// <summary>_rows は private SerializeField のため Reflection で差し込む(EffectRegistryTests と同じ方式)。</summary>
-		public static EffectRegistry NewRegistry(params EffectRegistry.Row[] rows)
-		{
-			var reg = ScriptableObject.CreateInstance<EffectRegistry>();
-			typeof(EffectRegistry)
-				.GetField("_rows", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-				.SetValue(reg, new List<EffectRegistry.Row>(rows));
-			return reg;
-		}
-
 		/// <summary>
 		/// Addressables を介さず、生成済みの ScreenEffect インスタンスを掴んだ状態の EffectRunner を作る。
 		/// LoadAndInstantiateAsync 後と同じ内部状態を Reflection で再現し、
@@ -299,11 +289,20 @@ namespace Tests.ScreenFramework
 		}
 	}
 
-	/// <summary>Match が必ず throw する matcher(Effect 解決失敗の注入用)。</summary>
-	internal sealed class ThrowingMatcher : ScreenMatcher
+	/// <summary>Resolve が必ず throw する registry(Navigator 側の吸収の注入用)。</summary>
+	internal sealed class ThrowingEffectRegistry : IEffectRegistry
 	{
-		public override bool Match(IScreenIdentifier id, ITransitionContext ctx)
-			=> throw new InvalidOperationException("fault injected at Matcher.Match");
+		public ResolveResult Resolve(IScreenIdentifier from, IScreenIdentifier to, ITransitionContext ctx)
+			=> throw new InvalidOperationException("fault injected at EffectRegistry.Resolve");
+	}
+
+	/// <summary>常に <c>HasMatch=true</c>(+指定 prefab ref)を返す registry。</summary>
+	internal sealed class StubMatchingEffectRegistry : IEffectRegistry
+	{
+		readonly UnityEngine.AddressableAssets.AssetReferenceGameObject _prefab;
+		public StubMatchingEffectRegistry(UnityEngine.AddressableAssets.AssetReferenceGameObject prefab) => _prefab = prefab;
+		public ResolveResult Resolve(IScreenIdentifier from, IScreenIdentifier to, ITransitionContext ctx)
+			=> new ResolveResult(true, _prefab);
 	}
 
 	/// <summary>

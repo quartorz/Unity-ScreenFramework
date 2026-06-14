@@ -37,8 +37,8 @@ namespace Tests.ScreenFramework
 			});
 		}
 
-		/// <summary>Page レイヤーに EffectRegistry を渡すセットアップ(effectRoot 省略時は意図的に未設定)。</summary>
-		protected void SetupNavigatorWithPageRegistry(EffectRegistry registry, Transform effectRoot = null)
+		/// <summary>Page レイヤーに IEffectRegistry を渡すセットアップ(effectRoot 省略時は意図的に未設定)。</summary>
+		protected void SetupNavigatorWithPageRegistry(IEffectRegistry registry, Transform effectRoot = null)
 		{
 			_pageContainer = NewContainer("PageRoot");
 			ScreenNavigator.Initialize(new TestServices(), new ScreenLayerSetup

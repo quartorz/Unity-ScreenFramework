@@ -1,6 +1,7 @@
+using ScreenFramework;
 using UnityEngine;
 
-namespace ScreenFramework
+namespace Sample.Effects
 {
 	/// <summary>
 	/// Effect Registry の行で「この遷移の from / to に該当するか」を判定する SO 基底。

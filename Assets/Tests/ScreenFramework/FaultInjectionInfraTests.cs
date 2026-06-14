@@ -30,26 +30,23 @@ namespace Tests.ScreenFramework
 		// ===========================================================================
 
 		[Test]
-		public async Task EffectMatcherThrows_IsAbsorbed_AndTransitionContinues()
+		public async Task ResolveThrows_IsAbsorbed_AndTransitionContinues()
 		{
-			LogAssert.Expect(LogType.Exception, new Regex("fault injected at Matcher\\.Match"));
-			var matcher = ScriptableObject.CreateInstance<ThrowingMatcher>();
-			var registry = NewRegistry(new EffectRegistry.Row { From = null, To = matcher, EffectPrefab = NewAssetRef() });
-			SetupNavigatorWithPageRegistry(registry);
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at EffectRegistry\\.Resolve"));
+			SetupNavigatorWithPageRegistry(new ThrowingEffectRegistry());
 
 			var id = new MarkerScreenId("A");
 			await ScreenNavigator.Page.Push(id);
 
 			Assert.AreEqual(1, ScreenNavigator.Page.History.Count);
-			Assert.AreSame(id, ScreenNavigator.Page.Current, "Matcher の例外で遷移本筋は止まらない");
+			Assert.AreSame(id, ScreenNavigator.Page.Current, "Resolve の例外で遷移本筋は止まらない");
 		}
 
 		[Test]
 		public async Task EffectMatchedButEffectRootMissing_WarnsAndSkips_TransitionContinues()
 		{
 			LogAssert.Expect(LogType.Warning, new Regex("EffectRoot is null"));
-			var registry = NewRegistry(new EffectRegistry.Row { From = null, To = null, EffectPrefab = NewAssetRef() });
-			SetupNavigatorWithPageRegistry(registry);   // EffectRoot は意図的に未設定
+			SetupNavigatorWithPageRegistry(new StubMatchingEffectRegistry(NewAssetRef()));   // EffectRoot は意図的に未設定
 
 			var id = new MarkerScreenId("A");
 			await ScreenNavigator.Page.Push(id);
@@ -64,12 +61,11 @@ namespace Tests.ScreenFramework
 			// 形式上は有効だが実在しない GUID の AssetReference を EffectRoot 付きでマッチさせ、
 			// prefab の Load/Instantiate 失敗が吸収されることを見る。
 			// Addressables 自体が出すエラーログは本数・文言が環境依存なので個別 Expect せず一括で無視する。
-			var registry = NewRegistry(new EffectRegistry.Row { From = null, To = null, EffectPrefab = NewAssetRef() });
 			var effectRoot = new GameObject("EffectRoot");
 			LogAssert.ignoreFailingMessages = true;
 			try
 			{
-				SetupNavigatorWithPageRegistry(registry, effectRoot.transform);
+				SetupNavigatorWithPageRegistry(new StubMatchingEffectRegistry(NewAssetRef()), effectRoot.transform);
 
 				var id = new MarkerScreenId("A");
 				await ScreenNavigator.Page.Push(id);
@@ -683,17 +679,14 @@ namespace Tests.ScreenFramework
 		}
 
 		[Test]
-		public async Task Pop_EffectMatcherThrows_IsAbsorbed_AndPopCompletes()
+		public async Task Pop_ResolveThrows_IsAbsorbed_AndPopCompletes()
 		{
-			// Effect の解決(Matcher 評価)は Pop でも走る。Push 側(rollback ゾーン)の吸収は
-			// EffectMatcherThrows… が固定済みで、こちらは commit ゾーン(Pop は全段完走必須)側の代表。
-			// Matcher は Push A / Push B / Pop の遷移ごとに 1 回ずつ評価され、毎回 throw が吸収される。
-			LogAssert.Expect(LogType.Exception, new Regex("fault injected at Matcher\\.Match"));
-			LogAssert.Expect(LogType.Exception, new Regex("fault injected at Matcher\\.Match"));
-			LogAssert.Expect(LogType.Exception, new Regex("fault injected at Matcher\\.Match"));
-			var matcher = ScriptableObject.CreateInstance<ThrowingMatcher>();
-			var registry = NewRegistry(new EffectRegistry.Row { From = null, To = matcher, EffectPrefab = NewAssetRef() });
-			SetupNavigatorWithPageRegistry(registry);
+			// Effect の解決は Pop でも走る。commit ゾーン(Pop は全段完走必須)でも Resolve の例外は吸収される。
+			// Resolve は Push A / Push B / Pop の遷移ごとに 1 回ずつ呼ばれ、毎回 throw が吸収される。
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at EffectRegistry\\.Resolve"));
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at EffectRegistry\\.Resolve"));
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at EffectRegistry\\.Resolve"));
+			SetupNavigatorWithPageRegistry(new ThrowingEffectRegistry());
 
 			var idA = new MarkerScreenId("A");
 			await ScreenNavigator.Page.Push(idA);

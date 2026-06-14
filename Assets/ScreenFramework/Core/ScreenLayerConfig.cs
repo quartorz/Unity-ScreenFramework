@@ -15,7 +15,7 @@ namespace ScreenFramework
 		/// v1 では Page Navigator のみに渡し、Dialog/SystemDialog は null 推奨。
 		/// 共通フェードは Registry の <c>(null, null)</c> 行で表現する。
 		/// </summary>
-		public EffectRegistry Registry { get; init; }
+		public IEffectRegistry Registry { get; init; }
 
 		/// <summary>
 		/// Effect prefab を Instantiate する親 Transform。Registry を渡す場合は必須。

@@ -1,3 +1,4 @@
+using Sample.Effects;
 using ScreenFramework;
 using UnityEngine;
 

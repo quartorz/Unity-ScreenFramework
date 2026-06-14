@@ -681,5 +681,63 @@ namespace Tests.ScreenFramework
 				DestroyContainer(sysC);
 			}
 		}
+
+		[Test]
+		public async Task Pop_EffectMatcherThrows_IsAbsorbed_AndPopCompletes()
+		{
+			// Effect の解決(Matcher 評価)は Pop でも走る。Push 側(rollback ゾーン)の吸収は
+			// EffectMatcherThrows… が固定済みで、こちらは commit ゾーン(Pop は全段完走必須)側の代表。
+			// Matcher は Push A / Push B / Pop の遷移ごとに 1 回ずつ評価され、毎回 throw が吸収される。
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at Matcher\\.Match"));
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at Matcher\\.Match"));
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at Matcher\\.Match"));
+			var matcher = ScriptableObject.CreateInstance<ThrowingMatcher>();
+			var registry = NewRegistry(new EffectRegistry.Row { From = null, To = matcher, EffectPrefab = NewAssetRef() });
+			SetupNavigatorWithPageRegistry(registry);
+
+			var idA = new MarkerScreenId("A");
+			await ScreenNavigator.Page.Push(idA);
+			await ScreenNavigator.Page.Push(new MarkerScreenId("B"));
+
+			await ScreenNavigator.Page.Pop();
+
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count, "Matcher の例外で Pop が中断しない");
+			Assert.AreSame(idA, ScreenNavigator.Page.Current);
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+		}
+
+		[Test]
+		public async Task TransitionEndObserver_IssuingQueuedOp_RunsAfterCurrent_AndStackStaysCoherent()
+		{
+			// 観測者(購読者)は例外だけでなく「遷移 API を呼び返す」こともできてしまう。
+			// FireEnd は遷移本体の内側で同期発火するため、そこから発行された操作は FIFO チェーンに
+			// 積まれて現在の遷移完了後に実行され、本筋の bookkeeping を壊さないことを固定する。
+			SetupNavigator();
+			var idA = new MarkerScreenId("A");
+			await ScreenNavigator.Page.Push(idA);
+
+			var popTask = UniTask.CompletedTask;
+			var issued = false;
+			Action<ScreenTransitionEvent> onEnd = _ =>
+			{
+				if (issued) return;
+				issued = true;
+				popTask = ScreenNavigator.Page.Pop(new PopOptions { InterruptPriority = InterruptPriority.Queue });
+			};
+			ScreenNavigator.Page.OnTransitionEnd += onEnd;
+			try
+			{
+				await ScreenNavigator.Page.Push(new MarkerScreenId("B"));
+				await popTask;   // 観測者発行の Pop は Push 完了後に実行される
+			}
+			finally
+			{
+				ScreenNavigator.Page.OnTransitionEnd -= onEnd;
+			}
+
+			Assert.AreSame(idA, ScreenNavigator.Page.Current, "観測者発行の Pop が Push 完了後に正しく適用される");
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count);
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+		}
 	}
 }

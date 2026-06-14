@@ -55,5 +55,25 @@ namespace Tests.ScreenFramework
 			Assert.AreSame(idA, ScreenNavigator.Page.Current, "復帰演出の失敗で Pop が中断しない");
 			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
 		}
+
+		[Test]
+		public async Task Pop_ExitHookWaitForStageTimesOut_IsAbsorbed_AndPopCompletes()
+		{
+			// commit ゾーン(退場 hook)での WaitForStage timeout。rollback ゾーンの timeout は伝播 +
+			// ロールバック(Push_HookWaitsForStageNeverPublished…)だが、commit ゾーンでは他の hook 例外と
+			// 同じく吸収されて Pop は完走する契約。
+			SetupNavigator();
+			LogAssert.Expect(LogType.Exception, new Regex("Timeout"));
+
+			var idA = new MarkerScreenId("A");
+			await ScreenNavigator.Page.Push(idA);
+			await ScreenNavigator.Page.Push(new ControllableScreenId(new InstantHandle(), () => new StageWaitExitPresenter()));
+
+			await ScreenNavigator.Page.Pop();
+
+			Assert.AreEqual(1, ScreenNavigator.Page.History.Count, "stage 待ちの timeout で Pop が中断しない");
+			Assert.AreSame(idA, ScreenNavigator.Page.Current);
+			Assert.IsFalse(ScreenNavigator.Page.IsTransitioning);
+		}
 	}
 }

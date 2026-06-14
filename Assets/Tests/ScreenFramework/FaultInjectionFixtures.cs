@@ -305,4 +305,14 @@ namespace Tests.ScreenFramework
 		public override bool Match(IScreenIdentifier id, ITransitionContext ctx)
 			=> throw new InvalidOperationException("fault injected at Matcher.Match");
 	}
+
+	/// <summary>
+	/// OnBeforeExit(完走必須ゾーン)で NeverPublishedStage を短い timeout 付きで待つ presenter。
+	/// commit ゾーンの stage 待ち timeout が吸収されて遷移が完走することの注入用。
+	/// </summary>
+	internal sealed class StageWaitExitPresenter : IScreenPresenter
+	{
+		UniTask IScreenPresenter.OnBeforeExit(INavigationDataWriter w, ITransitionContext x, CancellationToken c)
+			=> x.WaitForStage<NeverPublishedStage>(c, TimeSpan.FromMilliseconds(50));
+	}
 }

@@ -41,6 +41,24 @@ namespace Tests.ScreenFramework.ModelBased
 		Clear,
 	}
 
+	/// <summary>
+	/// シナリオ全体の Effect 設定。EditMode では Effect prefab の InstantiateAsync が成立せず（PlayerLoop を
+	/// 回さないので Yield が再開しない）、実体化経路に入ると停止する。よって踏めるのは
+	/// 「Effect 解決の失敗が本筋を一切乱さない」C5 の resolution 耐性のみ。いずれの失敗モードでも effect=null に
+	/// 落ち、遷移はモデルどおり（Effect 無し）に完走することを検証する。
+	/// </summary>
+	public enum MbtEffectMode
+	{
+		/// <summary>Registry を渡さない（既定。Effect 機構に一切触れない）。</summary>
+		None,
+		/// <summary>Registry.Resolve が例外を投げる。吸収されて effect=null（C5: Matcher 例外）。</summary>
+		RegistryThrows,
+		/// <summary>Registry が常にマッチ無しを返す。effect=null で素通し。</summary>
+		NoMatch,
+		/// <summary>Registry はマッチするが EffectRoot 未設定。警告ログ + effect=null（C5: EffectRoot 未設定）。</summary>
+		RootMissing,
+	}
+
 	public enum MbtTokenMode
 	{
 		None,
@@ -59,6 +77,8 @@ namespace Tests.ScreenFramework.ModelBased
 	public enum MbtGateMode
 	{
 		None,
+		/// <summary>OnInitialize を外部解放まで停止する（rollback ゾーンの最前段 = load 開始前）。</summary>
+		HoldInitialize,
 		/// <summary>handle.Load を外部解放まで停止する（rollback ゾーンの前段）。</summary>
 		HoldLoad,
 		/// <summary>OnAfterLoad を外部解放まで停止する（rollback ゾーンの最終境界 = commit へ移る直前）。</summary>
@@ -67,6 +87,12 @@ namespace Tests.ScreenFramework.ModelBased
 		HoldCommit,
 		/// <summary>OnAfterEnter を外部解放まで停止する（commit ゾーンの最終境界）。</summary>
 		HoldAfterEnter,
+		/// <summary>
+		/// Pop の退場 hook（OnBeforeExit）で停止する。退場は safeCt=None で走る commit ゾーンなので、
+		/// 停止中の外部キャンセルは無視され、preempt も巻き戻せず完走を待つ。入場側ゲート（HoldCommit）とは
+		/// 別コード（ExitPreviousAsync）の着弾点。
+		/// </summary>
+		HoldExit,
 	}
 
 	public enum MbtOpFault
@@ -178,10 +204,16 @@ namespace Tests.ScreenFramework.ModelBased
 	{
 		public int Seed;
 		public List<MbtOp> Ops = new();
+		/// <summary>Page レイヤーの StackMode。Stack は覆っても下画面を残し（全 loaded 行が active）、blocker を敷く。</summary>
+		public StackMode StackMode;
+		/// <summary>Page レイヤーの Effect 設定。None 以外は resolution 失敗の耐性（C5）を踏む。</summary>
+		public MbtEffectMode EffectMode;
+		/// <summary>全 op 発行後（in-flight ゲート保持中）に ScreenNavigator.Shutdown を差し込むか（C9）。true のとき回復プローブは行わない。</summary>
+		public bool ShutdownAtEnd;
 
 		public MbtScenario Clone()
 		{
-			var c = new MbtScenario { Seed = Seed };
+			var c = new MbtScenario { Seed = Seed, StackMode = StackMode, EffectMode = EffectMode, ShutdownAtEnd = ShutdownAtEnd };
 			foreach (var op in Ops) c.Ops.Add(op.Clone());
 			return c;
 		}
@@ -189,6 +221,9 @@ namespace Tests.ScreenFramework.ModelBased
 		public string Describe()
 		{
 			var sb = new StringBuilder();
+			if (StackMode != StackMode.Cover) sb.Append("# StackMode=").AppendLine(StackMode.ToString());
+			if (EffectMode != MbtEffectMode.None) sb.Append("# EffectMode=").AppendLine(EffectMode.ToString());
+			if (ShutdownAtEnd) sb.AppendLine("# ShutdownAtEnd");
 			for (var i = 0; i < Ops.Count; i++) sb.AppendLine(Ops[i].Describe(i));
 			return sb.ToString();
 		}
@@ -243,10 +278,11 @@ namespace Tests.ScreenFramework.ModelBased
 
 					op.Gate = rng.Next(100) switch
 					{
-						< 22 => MbtGateMode.HoldLoad,
-						< 37 => MbtGateMode.HoldAfterLoad,
-						< 52 => MbtGateMode.HoldCommit,
-						< 62 => MbtGateMode.HoldAfterEnter,
+						< 14 => MbtGateMode.HoldInitialize,
+						< 30 => MbtGateMode.HoldLoad,
+						< 44 => MbtGateMode.HoldAfterLoad,
+						< 57 => MbtGateMode.HoldCommit,
+						< 65 => MbtGateMode.HoldAfterEnter,
 						_ => MbtGateMode.None,
 					};
 					if (rng.Next(100) < 25) op.Fault = PickPushFault(rng);
@@ -296,9 +332,23 @@ namespace Tests.ScreenFramework.ModelBased
 						op.Fault = MbtOpFault.None;             // DismissAll に Configure は無い
 						op.Priority = InterruptPriority.Preempt; // 実 API 上、常に Preempt
 					}
+					// Pop の退場 hook で停止する commit ゾーンゲート。Configure 例外は退場前に決着するので両立しない。
+					if (op.Kind == MbtOpKind.Pop && op.Fault == MbtOpFault.None && rng.Next(100) < 30)
+						op.Gate = MbtGateMode.HoldExit;
 				}
 				sc.Ops.Add(op);
 			}
+
+			// シナリオ全体のフラグは op 生成の後で引く（既存シードの op 列を変えないため）。
+			sc.StackMode = rng.Next(100) < 30 ? StackMode.Stack : StackMode.Cover;
+			sc.EffectMode = rng.Next(100) switch
+			{
+				< 12 => MbtEffectMode.RegistryThrows,
+				< 24 => MbtEffectMode.NoMatch,
+				< 36 => MbtEffectMode.RootMissing,
+				_ => MbtEffectMode.None,
+			};
+			sc.ShutdownAtEnd = rng.Next(100) < 14;
 			return sc;
 		}
 

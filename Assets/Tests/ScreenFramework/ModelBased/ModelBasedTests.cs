@@ -207,6 +207,44 @@ namespace Tests.ScreenFramework.ModelBased
 		}
 
 		[Test]
+		public async Task Pinned_CancelAtInitialize_RollsBack()
+		{
+			// rollback ゾーンの最前段（OnInitialize 滞留中 = load 開始前）に着弾した外部キャンセルは OCE で
+			// 巻き戻り、既存スタックは無傷で残る（C2 の rollback 側、最前境界）。
+			var sc = new MbtScenario();
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 1, Label = "S1" } });
+			sc.Ops.Add(new MbtOp
+			{
+				Kind = MbtOpKind.Push,
+				Screen = new MbtScreenSpec { Uid = 2, Label = "S2" },
+				Gate = MbtGateMode.HoldInitialize,
+				Token = MbtTokenMode.CancelAfterIssue,
+			});
+			await AssertScenario(sc);
+		}
+
+		[Test]
+		public async Task Pinned_PreemptAtInitialize_LoserRollsBack_WinnerWins()
+		{
+			// OnInitialize 滞留中（rollback の最前境界）の遷移は生きた Preempt に正当に巻き戻される（C3）。
+			var sc = new MbtScenario();
+			sc.Ops.Add(new MbtOp
+			{
+				Kind = MbtOpKind.Push,
+				Screen = new MbtScreenSpec { Uid = 1, Label = "S1" },
+				Gate = MbtGateMode.HoldInitialize,
+			});
+			sc.Ops.Add(new MbtOp
+			{
+				Kind = MbtOpKind.Push,
+				Screen = new MbtScreenSpec { Uid = 2, Label = "S2" },
+				Priority = InterruptPriority.Preempt,
+				Overlap = true,
+			});
+			await AssertScenario(sc);
+		}
+
+		[Test]
 		public async Task Pinned_CancelAtAfterLoad_RollsBack()
 		{
 			// rollback ゾーンの最終境界（OnAfterLoad 滞留中）に着弾した外部キャンセルは OCE で巻き戻り、
@@ -255,6 +293,41 @@ namespace Tests.ScreenFramework.ModelBased
 			{
 				Kind = MbtOpKind.Push,
 				Screen = new MbtScreenSpec { Uid = 2, Label = "S2" },
+				Priority = InterruptPriority.Preempt,
+				Overlap = true,
+			});
+			await AssertScenario(sc);
+		}
+
+		[Test]
+		public async Task Pinned_CancelAtExit_IsIgnored_AndPopCompletes()
+		{
+			// 退場 hook（OnBeforeExit）滞留中の外部キャンセルは commit ゾーンなので無視され、Pop は完走して
+			// 下画面を復元する（C2 の commit 側 / 退場経路）。退場が rollback ゾーン扱いに退行すると RED になる。
+			var sc = new MbtScenario();
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 1, Label = "S1" } });
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 2, Label = "S2" } });
+			sc.Ops.Add(new MbtOp
+			{
+				Kind = MbtOpKind.Pop,
+				Gate = MbtGateMode.HoldExit,
+				Token = MbtTokenMode.CancelAfterIssue,
+			});
+			await AssertScenario(sc);
+		}
+
+		[Test]
+		public async Task Pinned_PreemptDuringExit_PopCompletesFirst_ThenPreemptRuns()
+		{
+			// 退場中（commit ゾーン）の Pop は生きた Preempt にも巻き戻されず完走し、その後で preempt が走る（C3）。
+			var sc = new MbtScenario();
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 1, Label = "S1" } });
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 2, Label = "S2" } });
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Pop, Gate = MbtGateMode.HoldExit });
+			sc.Ops.Add(new MbtOp
+			{
+				Kind = MbtOpKind.Push,
+				Screen = new MbtScreenSpec { Uid = 3, Label = "S3" },
 				Priority = InterruptPriority.Preempt,
 				Overlap = true,
 			});
@@ -351,6 +424,133 @@ namespace Tests.ScreenFramework.ModelBased
 		}
 
 		// ===========================================================================
+		// Stack モード + Blocker（③）
+		// ===========================================================================
+
+		[Test]
+		public async Task Pinned_StackMode_LowerStaysLoadedAndActive_PopHasNoRestore()
+		{
+			// Stack モードは覆っても下画面を退場させない。S1/S2 とも loaded かつ active のまま積み上がり、
+			// Pop は復元（再ロード/resume）を伴わずに S1 をそのまま残す。Cover との P7/P6 差が出る所。
+			var sc = new MbtScenario { StackMode = StackMode.Stack };
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 1, Label = "S1" } });
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 2, Label = "S2" } });
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Pop });
+			await AssertScenario(sc);
+		}
+
+		[Test]
+		public async Task Pinned_StackMode_BlockerPerCoveringScreen_TornDownOnPop()
+		{
+			// Stack + modal: 下に画面がある各段に input blocker が 1 枚敷かれ（S2/S3）、Pop で最上段の blocker が
+			// 確実に剥がれる（P10）。プローブ前の計数なので [S1,S2] 時点で blocker は 1 枚。
+			var sc = new MbtScenario { StackMode = StackMode.Stack };
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 1, Label = "S1" } });
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 2, Label = "S2" } });
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 3, Label = "S3" } });
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Pop });
+			await AssertScenario(sc);
+		}
+
+		[Test]
+		public async Task Pinned_StackMode_RestoredDormantRow_GetsBlocker()
+		{
+			// Stack + modal: Edit で最上段の下に dormant 行を挿し、Pop の復元で最上段へ戻すと、その行も
+			// push 時と同じ規則で blocker を持つ（P10=1）。ModalBlockerTests.RestoredDormantRow の引退先。
+			var sc = new MbtScenario { StackMode = StackMode.Stack };
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 1, Label = "S1" } });
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 2, Label = "S2" } });
+			sc.Ops.Add(new MbtOp
+			{
+				Kind = MbtOpKind.Edit,
+				EditKind = MbtEditKind.Insert,
+				EditIndex = 1,
+				Screen = new MbtScreenSpec { Uid = 99, Label = "S99" },
+			});
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Pop });
+			await AssertScenario(sc);
+		}
+
+		// ===========================================================================
+		// Effect/Registry の resolution 耐性（④, C5）
+		// ===========================================================================
+
+		[Test]
+		public async Task Pinned_EffectRegistryThrows_TransitionUnaffected()
+		{
+			// Registry.Resolve の例外は吸収され（effect=null）、遷移は Effect 無しと同一に完走する（C5）。
+			var sc = new MbtScenario { EffectMode = MbtEffectMode.RegistryThrows };
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 1, Label = "S1" } });
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 2, Label = "S2" } });
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Pop });
+			await AssertScenario(sc);
+		}
+
+		[Test]
+		public async Task Pinned_EffectRootMissing_TransitionUnaffected()
+		{
+			// マッチしても EffectRoot 未設定なら警告して skip（effect=null）。遷移は無傷（C5）。
+			var sc = new MbtScenario { EffectMode = MbtEffectMode.RootMissing };
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 1, Label = "S1" } });
+			sc.Ops.Add(new MbtOp
+			{
+				Kind = MbtOpKind.PushAndAwait,
+				Screen = new MbtScreenSpec { Uid = 2, Label = "D2", IsDialog = true, DialogResult = "R2" },
+			});
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Pop });
+			await AssertScenario(sc);
+		}
+
+		// ===========================================================================
+		// Shutdown 途中差し（⑤, C9）
+		// ===========================================================================
+
+		[Test]
+		public async Task Pinned_ShutdownDuringCommitGate_CompletesThenFolds()
+		{
+			// commit ゾーン（OnBeforeEnter 滞留）の push は Shutdown(preempt) でも巻き戻らず完走し、その後に
+			// 全レイヤーが畳まれて空になる（C9 + C2 commit 側）。回復プローブは行わない。
+			var sc = new MbtScenario { ShutdownAtEnd = true };
+			sc.Ops.Add(new MbtOp
+			{
+				Kind = MbtOpKind.Push,
+				Screen = new MbtScreenSpec { Uid = 1, Label = "S1" },
+				Gate = MbtGateMode.HoldCommit,
+			});
+			await AssertScenario(sc);
+		}
+
+		[Test]
+		public async Task Pinned_ShutdownDuringRollbackGate_RollsBackThenFolds()
+		{
+			// rollback ゾーン（ロード滞留）の push は Shutdown(preempt) で OCE 巻き戻り、既存 S1 もろとも空に畳まれる（C9 + C3）。
+			var sc = new MbtScenario { ShutdownAtEnd = true };
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 1, Label = "S1" } });
+			sc.Ops.Add(new MbtOp
+			{
+				Kind = MbtOpKind.Push,
+				Screen = new MbtScreenSpec { Uid = 2, Label = "S2" },
+				Gate = MbtGateMode.HoldLoad,
+				Overlap = true,
+			});
+			await AssertScenario(sc);
+		}
+
+		[Test]
+		public async Task Pinned_ShutdownWithPendingDialog_DeliversOce()
+		{
+			// in-flight でない安定スタック上でも、Shutdown は pending な PushAndAwait awaiter を OCE 決着させる（C4/C9）。
+			var sc = new MbtScenario { ShutdownAtEnd = true };
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 1, Label = "S1" } });
+			sc.Ops.Add(new MbtOp
+			{
+				Kind = MbtOpKind.PushAndAwait,
+				Screen = new MbtScreenSpec { Uid = 2, Label = "D2", IsDialog = true, DialogResult = "R2" },
+			});
+			await AssertScenario(sc);
+		}
+
+		// ===========================================================================
 		// カバレッジ（網羅漏れ＝語彙/重みの穴を機械検出する。フレームワークは実行せずモデルだけ評価）
 		// ===========================================================================
 
@@ -367,11 +567,17 @@ namespace Tests.ScreenFramework.ModelBased
 			var tokens = new HashSet<MbtTokenMode>();
 			var screenFaults = new HashSet<MbtScreenFaults>();
 			var editKinds = new HashSet<MbtEditKind>();
+			var stackModes = new HashSet<StackMode>();
+			var effectModes = new HashSet<MbtEffectMode>();
+			var shutdownSeen = false;
 
 			for (var seed = 0; seed < seeds; seed++)
 			{
 				var sc = MbtGenerator.Generate(seed);
 				tags.UnionWith(MbtReferenceModel.Evaluate(sc, probe).CoverageTags);
+				stackModes.Add(sc.StackMode);
+				effectModes.Add(sc.EffectMode);
+				if (sc.ShutdownAtEnd) shutdownSeen = true;
 				foreach (var op in sc.Ops)
 				{
 					kinds.Add(op.Kind);
@@ -402,6 +608,11 @@ namespace Tests.ScreenFramework.ModelBased
 				if (f != MbtScreenFaults.None && !screenFaults.Contains(f)) missing.Add("screenFault: " + f);
 			foreach (MbtEditKind ek in Enum.GetValues(typeof(MbtEditKind)))
 				if (!editKinds.Contains(ek)) missing.Add("editKind: " + ek);
+			foreach (StackMode sm in Enum.GetValues(typeof(StackMode)))
+				if (!stackModes.Contains(sm)) missing.Add("stackMode: " + sm);
+			foreach (MbtEffectMode em in Enum.GetValues(typeof(MbtEffectMode)))
+				if (!effectModes.Contains(em)) missing.Add("effectMode: " + em);
+			if (!shutdownSeen) missing.Add("shutdownAtEnd: true");
 
 			if (missing.Count > 0)
 				Assert.Fail(

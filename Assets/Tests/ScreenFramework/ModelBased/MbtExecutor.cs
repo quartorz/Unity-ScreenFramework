@@ -90,6 +90,29 @@ namespace Tests.ScreenFramework.ModelBased
 		MbtScreenSpec Spec { get; }
 	}
 
+	/// <summary>
+	/// C5 の resolution 耐性専用の Registry。EditMode では Effect prefab を実体化できない（PlayerLoop を
+	/// 回さないので InstantiateAsync の Yield が再開しない）ため、実体化に至らない 3 失敗モードだけを注入する:
+	/// Resolve 例外 / マッチ無し / マッチするが EffectRoot 未設定。いずれも navigator 側で effect=null に落ち、
+	/// 遷移はモデルどおり（Effect 無し）に完走しなければならない。EffectRoot は常に null で渡すので
+	/// LoadAndInstantiateAsync には決して入らない。
+	/// </summary>
+	internal sealed class MbtEffectRegistry : IEffectRegistry
+	{
+		readonly MbtEffectMode _mode;
+		public MbtEffectRegistry(MbtEffectMode mode) => _mode = mode;
+
+		public ResolveResult Resolve(IScreenIdentifier from, IScreenIdentifier to, ITransitionContext ctx)
+		{
+			if (_mode == MbtEffectMode.RegistryThrows)
+				throw new InvalidOperationException("mbt: effect registry resolve fault");
+			// RootMissing はマッチを返すが EffectRoot=null なので navigator が警告して skip する。
+			if (_mode == MbtEffectMode.RootMissing)
+				return new ResolveResult(true, null);
+			return new ResolveResult(false, null);   // NoMatch
+		}
+	}
+
 	internal sealed record MbtScreenId(MbtScreenSpec Spec, MbtWorld World) : ScreenIdentifier, IMbtId
 	{
 		public override IScreenHandle CreateHandle(ScreenServices s) => World.CreateHandle(Spec);
@@ -115,6 +138,19 @@ namespace Tests.ScreenFramework.ModelBased
 		public readonly Dictionary<int, MbtView> ViewByUid = new();
 		public readonly List<string> Events = new();
 
+		/// <summary>
+		/// HoldExit な Pop が発行した「次の退場 hook で停止する」ゲート。退場させられる画面の OnBeforeExit が
+		/// 最初に 1 回だけ consume する。退場は safeCt=None で走るため ct 登録なしの commit ゾーンゲート。
+		/// </summary>
+		public UniTaskCompletionSource PendingExitGate;
+
+		public UniTaskCompletionSource ConsumeExitGate()
+		{
+			var g = PendingExitGate;
+			PendingExitGate = null;
+			return g;
+		}
+
 		public IScreenPresenter CreatePresenter(MbtScreenSpec spec)
 		{
 			var count = (InstanceCount.TryGetValue(spec.Uid, out var c) ? c : 0) + 1;
@@ -123,8 +159,8 @@ namespace Tests.ScreenFramework.ModelBased
 			var op = initial && OpBySpecUid.TryGetValue(spec.Uid, out var o) ? o : null;
 			var rt = initial && RuntimeBySpecUid.TryGetValue(spec.Uid, out var r) ? r : null;
 			return spec.IsDialog
-				? new MbtDialogPresenter(spec, op, rt)
-				: new MbtPresenter(spec, op, rt);
+				? new MbtDialogPresenter(spec, op, rt, this)
+				: new MbtPresenter(spec, op, rt, this);
 		}
 
 		public IScreenHandle CreateHandle(MbtScreenSpec spec)
@@ -146,10 +182,12 @@ namespace Tests.ScreenFramework.ModelBased
 		public MbtOp Plan;
 		public CancellationTokenSource Cts;
 		public UniTask<MbtObserved> Task;
+		public UniTaskCompletionSource InitializeGate;
 		public UniTaskCompletionSource<IScreenViewInstance> LoadGate;
 		public UniTaskCompletionSource AfterLoadGate;
 		public UniTaskCompletionSource CommitGate;
 		public UniTaskCompletionSource AfterEnterGate;
+		public UniTaskCompletionSource ExitGate;
 		public bool GatesReleased;
 	}
 
@@ -211,18 +249,22 @@ namespace Tests.ScreenFramework.ModelBased
 		readonly MbtScreenSpec _spec;
 		readonly MbtOp _op;   // 初回インスタンスのみ非 null
 		readonly MbtOpRuntime _rt;
+		readonly MbtWorld _world;
 
-		public MbtPresenter(MbtScreenSpec spec, MbtOp op, MbtOpRuntime rt)
+		public MbtPresenter(MbtScreenSpec spec, MbtOp op, MbtOpRuntime rt, MbtWorld world)
 		{
 			_spec = spec;
 			_op = op;
 			_rt = rt;
+			_world = world;
 		}
 
-		UniTask IScreenPresenter.OnInitialize(CancellationToken ct)
-			=> _op?.Fault == MbtOpFault.OnInitializeThrows
-				? throw new InvalidOperationException($"mbt: OnInitialize fault ({_spec.Label})")
-				: UniTask.CompletedTask;
+		async UniTask IScreenPresenter.OnInitialize(CancellationToken ct)
+		{
+			if (_op?.Fault == MbtOpFault.OnInitializeThrows)
+				throw new InvalidOperationException($"mbt: OnInitialize fault ({_spec.Label})");
+			await MbtGate.AwaitRollback(_rt?.InitializeGate, ct);
+		}
 
 		UniTask IScreenPresenter.OnBeforeLoad(INavigationDataReader r, ITransitionContext x, CancellationToken ct)
 		{
@@ -257,9 +299,13 @@ namespace Tests.ScreenFramework.ModelBased
 		}
 
 		UniTask IScreenPresenter.OnBeforeExit(INavigationDataWriter w, ITransitionContext x, CancellationToken ct)
-			=> (_spec.Faults & MbtScreenFaults.BeforeExitThrows) != 0
-				? throw new InvalidOperationException($"mbt: OnBeforeExit fault ({_spec.Label})")
-				: UniTask.CompletedTask;
+		{
+			if ((_spec.Faults & MbtScreenFaults.BeforeExitThrows) != 0)
+				throw new InvalidOperationException($"mbt: OnBeforeExit fault ({_spec.Label})");
+			// HoldExit な Pop が仕掛けた退場ゲートを最初の退場で 1 回だけ消費する。退場は commit ゾーン
+			// （safeCt=None）なので ct 登録なしで待つ。
+			return _world.ConsumeExitGate()?.Task ?? UniTask.CompletedTask;
+		}
 
 		UniTask IScreenPresenter.OnAfterExit(INavigationDataWriter w, ITransitionContext x, CancellationToken ct)
 			=> (_spec.Faults & MbtScreenFaults.AfterExitThrows) != 0
@@ -287,18 +333,22 @@ namespace Tests.ScreenFramework.ModelBased
 		readonly MbtScreenSpec _spec;
 		readonly MbtOp _op;
 		readonly MbtOpRuntime _rt;
+		readonly MbtWorld _world;
 
-		public MbtDialogPresenter(MbtScreenSpec spec, MbtOp op, MbtOpRuntime rt)
+		public MbtDialogPresenter(MbtScreenSpec spec, MbtOp op, MbtOpRuntime rt, MbtWorld world)
 		{
 			_spec = spec;
 			_op = op;
 			_rt = rt;
+			_world = world;
 		}
 
-		protected override UniTask OnInitialize(CancellationToken ct)
-			=> _op?.Fault == MbtOpFault.OnInitializeThrows
-				? throw new InvalidOperationException($"mbt: OnInitialize fault ({_spec.Label})")
-				: UniTask.CompletedTask;
+		protected override async UniTask OnInitialize(CancellationToken ct)
+		{
+			if (_op?.Fault == MbtOpFault.OnInitializeThrows)
+				throw new InvalidOperationException($"mbt: OnInitialize fault ({_spec.Label})");
+			await MbtGate.AwaitRollback(_rt?.InitializeGate, ct);
+		}
 
 		protected override UniTask OnBeforeLoad(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct)
 		{
@@ -334,9 +384,11 @@ namespace Tests.ScreenFramework.ModelBased
 		}
 
 		protected override UniTask OnBeforeExitCore(ITransitionContext ctx, CancellationToken ct)
-			=> (_spec.Faults & MbtScreenFaults.BeforeExitThrows) != 0
-				? throw new InvalidOperationException($"mbt: OnBeforeExit fault ({_spec.Label})")
-				: UniTask.CompletedTask;
+		{
+			if ((_spec.Faults & MbtScreenFaults.BeforeExitThrows) != 0)
+				throw new InvalidOperationException($"mbt: OnBeforeExit fault ({_spec.Label})");
+			return _world.ConsumeExitGate()?.Task ?? UniTask.CompletedTask;
+		}
 
 		protected override UniTask OnAfterExit(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct)
 			=> (_spec.Faults & MbtScreenFaults.AfterExitThrows) != 0
@@ -392,9 +444,18 @@ namespace Tests.ScreenFramework.ModelBased
 			var pageC = NewContainer("MbtPageRoot");
 			var dialogC = NewContainer("MbtDialogRoot");
 			var sysC = NewContainer("MbtSysRoot");
+			// Page レイヤーだけ stack モード / Effect Registry を反映する（Effect は Page のみに渡す運用に合わせる）。
+			// EffectRoot は常に null。resolution 失敗の 3 経路だけを踏み、Effect 実体化（EditMode で停止）には入らない。
+			var pageRegistry = sc.EffectMode == MbtEffectMode.None ? null : new MbtEffectRegistry(sc.EffectMode);
 			ScreenNavigator.Initialize(new TestServices(), new ScreenLayerSetup
 			{
-				Page = NewLayer(pageC),
+				Page = new ScreenLayerConfig
+				{
+					Container = pageC,
+					StackMode = sc.StackMode,
+					Registry = pageRegistry,
+					EffectRoot = null,
+				},
 				Dialog = NewLayer(dialogC),
 				SystemDialog = NewLayer(sysC),
 			});
@@ -415,13 +476,42 @@ namespace Tests.ScreenFramework.ModelBased
 					rts[i] = Issue(nav, world, plan);
 					if (plan.Token == MbtTokenMode.CancelAfterIssue) rts[i].Cts?.Cancel();
 				}
+				// C9: Shutdown は in-flight ゲート保持中（解放前）に差し込む。preempt な DismissAll として
+				// rollback ゾーンを巻き戻し、commit ゾーンの完走を待ってから全レイヤーを畳む。
+				UniTask shutdownTask = default;
+				if (sc.ShutdownAtEnd) shutdownTask = ScreenNavigator.Shutdown();
+
 				ReleaseGates(rts, n, world);
+
+				if (sc.ShutdownAtEnd)
+				{
+					try
+					{
+						if (shutdownTask.Status == UniTaskStatus.Pending)
+							report.Failures.Add("P0: Shutdown（途中差し）が決着しない（in-flight 畳みのハング）");
+						else
+							shutdownTask.GetAwaiter().GetResult();
+					}
+					catch (Exception e)
+					{
+						report.Failures.Add($"P0: Shutdown（途中差し）が例外で失敗した {Describe(e)}");
+					}
+				}
 
 				if (nav.IsTransitioning)
 				{
 					report.Failures.Add("P5: 全ゲート解放後も遷移チェーンが収束しない（ハングの疑い）");
 					return report;   // probe を発行するとデッドロックするのでここで打ち切る
 				}
+
+				// P10: modal blocker の収支。Stack モードで敷かれた blocker GameObject の個数が期待と一致し、
+				// 余り（リーク）が無いこと（pop / 退場で確実に破棄される）。Cover モードでは常に 0。
+				var blockerCount = 0;
+				var blockerRoot = pageC.Root;
+				for (var c = 0; c < blockerRoot.childCount; c++)
+					if (blockerRoot.GetChild(c).name == "ScreenFramework.ModalBlocker") blockerCount++;
+				if (blockerCount != expect.PreProbeBlockerCount)
+					report.Failures.Add($"P10: modal blocker 個数 {blockerCount}（期待: {expect.PreProbeBlockerCount}）");
 
 				// P7 表示状態: プローブを積む前に、生きている各画面の active が「最上段かつ Loaded のみ true」
 				// になっていること（覆われた・suspended・dormant は非表示）。プローブで全段が覆われる前に観測する。
@@ -437,7 +527,10 @@ namespace Tests.ScreenFramework.ModelBased
 						report.Failures.Add($"P7: S{kv.Key} の active={view.Active}（期待: {kv.Value}）");
 				}
 
-				// P5 回復プローブ（C8）: どんなシナリオの後でも次の操作が成立する。
+				// Shutdown は再 Initialize 必須で静的参照を畳むため、回復プローブ（C8）は行わない（P1〜P6 は継続）。
+					if (!sc.ShutdownAtEnd)
+					{
+					// P5 回復プローブ（C8）: どんなシナリオの後でも次の操作が成立する。
 				// Queue 優先度にして、万一残骸があっても preempt で隠蔽しない。
 				var probeTask = WrapEntry(
 					nav.Push(new MbtScreenId(probeSpec, world), new PushOptions { InterruptPriority = InterruptPriority.Queue }),
@@ -454,6 +547,7 @@ namespace Tests.ScreenFramework.ModelBased
 				}
 				if (nav.IsTransitioning)
 					report.Failures.Add("P5: プローブ完了後も IsTransitioning が true のまま");
+					}
 
 				// P2 / P4: 各 op の決着と PushAndAwait の配送
 				for (var i = 0; i < n; i++)
@@ -551,10 +645,12 @@ namespace Tests.ScreenFramework.ModelBased
 				var rt = rts[i];
 				if (rt == null || rt.GatesReleased) continue;
 				rt.GatesReleased = true;
+				rt.InitializeGate?.TrySetResult();
 				rt.LoadGate?.TrySetResult(new MbtView(rt.Plan.Screen.Uid, world));
 				rt.AfterLoadGate?.TrySetResult();
 				rt.CommitGate?.TrySetResult();
 				rt.AfterEnterGate?.TrySetResult();
+				rt.ExitGate?.TrySetResult();
 			}
 		}
 
@@ -571,12 +667,19 @@ namespace Tests.ScreenFramework.ModelBased
 
 			if (plan.IsPushLike)
 			{
+				if (plan.Gate == MbtGateMode.HoldInitialize) rt.InitializeGate = new UniTaskCompletionSource();
 				if (plan.Gate == MbtGateMode.HoldLoad) rt.LoadGate = new UniTaskCompletionSource<IScreenViewInstance>();
 				if (plan.Gate == MbtGateMode.HoldAfterLoad) rt.AfterLoadGate = new UniTaskCompletionSource();
 				if (plan.Gate == MbtGateMode.HoldCommit) rt.CommitGate = new UniTaskCompletionSource();
 				if (plan.Gate == MbtGateMode.HoldAfterEnter) rt.AfterEnterGate = new UniTaskCompletionSource();
 				world.OpBySpecUid[plan.Screen.Uid] = plan;
 				world.RuntimeBySpecUid[plan.Screen.Uid] = rt;
+			}
+			else if (plan.Kind == MbtOpKind.Pop && plan.Gate == MbtGateMode.HoldExit)
+			{
+				// 退場ゲートを world スロットに置く。この Pop が退場させる画面の OnBeforeExit が consume する。
+				rt.ExitGate = new UniTaskCompletionSource();
+				world.PendingExitGate = rt.ExitGate;
 			}
 
 			Action<INavigationDataWriter> configure = plan.Fault == MbtOpFault.ConfigureThrows
@@ -596,6 +699,11 @@ namespace Tests.ScreenFramework.ModelBased
 				case MbtOpKind.Pop:
 					rt.Task = WrapPlain(nav.Pop(
 						new PopOptions { Configure = configure, InterruptPriority = plan.Priority }, ct)).Preserve();
+					// HoldExit で退場が起きなかった（履歴 1 枚で no-op、または BeforeExit が consume 前に throw）場合、
+					// 仕掛けたゲートが残り後続の退場に誤爆するので回収する。
+					if (plan.Gate == MbtGateMode.HoldExit
+						&& ReferenceEquals(world.PendingExitGate, rt.ExitGate) && rt.Task.Status != UniTaskStatus.Pending)
+						world.PendingExitGate = null;
 					break;
 				case MbtOpKind.PopTo:
 				{

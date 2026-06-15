@@ -27,37 +27,9 @@ namespace Tests.ScreenFramework
 				Object.DestroyImmediate(mb.gameObject);
 		}
 
-		[UnityTest]
-		public IEnumerator Stack_Block_Modal_CreatesBlocker_OnSecondPush() => UniTask.ToCoroutine(async () =>
-		{
-			SetupNavigator(StackMode.Stack, StackInputPolicy.BlockUnderlying, defaultModal: true);
-
-			await ScreenNavigator.Page.Push(new DummyScreenId(1));
-			Assert.AreEqual(0, CountBlockers(), "下に画面がない 1 枚目では blocker 不要");
-
-			await ScreenNavigator.Page.Push(new DummyScreenId(2));
-			Assert.AreEqual(1, CountBlockers(), "2 枚目で blocker 1 個");
-
-			await ScreenNavigator.Page.Push(new DummyScreenId(3));
-			Assert.AreEqual(2, CountBlockers(), "3 枚目でさらにもう 1 個");
-		});
-
-		[UnityTest]
-		public IEnumerator Stack_Block_Modal_DestroysBlocker_OnPop() => UniTask.ToCoroutine(async () =>
-		{
-			SetupNavigator(StackMode.Stack, StackInputPolicy.BlockUnderlying, defaultModal: true);
-
-			await ScreenNavigator.Page.Push(new DummyScreenId(1));
-			await ScreenNavigator.Page.Push(new DummyScreenId(2));
-			await ScreenNavigator.Page.Push(new DummyScreenId(3));
-			Assert.AreEqual(2, CountBlockers());
-
-			await ScreenNavigator.Page.Pop();
-			Assert.AreEqual(1, CountBlockers());
-
-			await ScreenNavigator.Page.Pop();
-			Assert.AreEqual(0, CountBlockers());
-		});
+		// CreatesBlocker_OnSecondPush / DestroysBlocker_OnPop / Cover_NeverCreatesBlocker /
+		// RestoredDormantRow_GetsBlocker はモデルベーステストの P10（blocker 個数）に移行し引退した
+		// （ModelBasedTests の Pinned_StackMode_* + 全 seed の P10 検査）。
 
 		[UnityTest]
 		public IEnumerator Stack_Block_ModalOverrideFalse_SkipsBlocker() => UniTask.ToCoroutine(async () =>
@@ -84,17 +56,6 @@ namespace Tests.ScreenFramework
 		});
 
 		[UnityTest]
-		public IEnumerator Cover_NeverCreatesBlocker() => UniTask.ToCoroutine(async () =>
-		{
-			SetupNavigator(StackMode.Cover, StackInputPolicy.BlockUnderlying, defaultModal: true);
-
-			await ScreenNavigator.Page.Push(new DummyScreenId(1));
-			await ScreenNavigator.Page.Push(new DummyScreenId(2));
-
-			Assert.AreEqual(0, CountBlockers(), "Cover は下を隠すので blocker 不要");
-		});
-
-		[UnityTest]
 		public IEnumerator Stack_Block_Modal_ReplaceSwapsBlocker() => UniTask.ToCoroutine(async () =>
 		{
 			SetupNavigator(StackMode.Stack, StackInputPolicy.BlockUnderlying, defaultModal: true);
@@ -109,25 +70,6 @@ namespace Tests.ScreenFramework
 			await ScreenNavigator.Page.Replace(new DummyScreenId(100),
 				new ReplaceOptions { ModalOverride = false });
 			Assert.AreEqual(0, CountBlockers(), "Modal=false に Replace すれば消える");
-		});
-
-		[UnityTest]
-		public IEnumerator Stack_Block_Modal_RestoredDormantRow_GetsBlocker() => UniTask.ToCoroutine(async () =>
-		{
-			SetupNavigator(StackMode.Stack, StackInputPolicy.BlockUnderlying, defaultModal: true);
-
-			await ScreenNavigator.Page.Push(new DummyScreenId(1));
-			await ScreenNavigator.Page.Push(new DummyScreenId(2));
-			Assert.AreEqual(1, CountBlockers());
-
-			// dormant 行（インスタンスなし）を最上段の下に挿入し、Pop の復元で最上段に戻す
-			ScreenNavigator.Page.History.Edit(e => e.Insert(1, new DummyScreenId(99)));
-			await ScreenNavigator.Page.Pop();
-			// Pop で破棄された旧 blocker の Destroy（フレーム末尾）を待ってから数える
-			await UniTask.NextFrame();
-
-			Assert.AreEqual(new DummyScreenId(99), ScreenNavigator.Page.Current);
-			Assert.AreEqual(1, CountBlockers(), "復元された画面も push 時と同じ規則で blocker を持つ");
 		});
 
 		// ---- ヘルパー ----

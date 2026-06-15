@@ -10,11 +10,14 @@ namespace Tests.ScreenFramework.ModelBased
 	public static class MbtCoverage
 	{
 		// rollback ゾーンの停止中に来た撹乱は OCE で巻き戻る
+		public const string CancelGatedInitialize = "cancel.gatedInitialize.oce";
 		public const string CancelGatedLoad = "cancel.gatedLoad.oce";
 		public const string CancelGatedAfterLoad = "cancel.gatedAfterLoad.oce";
 		// commit ゾーンの停止中に来た外部キャンセルは無視されて完走する
 		public const string CancelGatedCommitIgnored = "cancel.gatedCommit.ignored";
 		public const string CancelGatedAfterEnterIgnored = "cancel.gatedAfterEnter.ignored";
+		// 退場 hook（Pop の OnBeforeExit）滞留中の外部キャンセルも commit ゾーンなので無視される
+		public const string CancelGatedExitIgnored = "cancel.gatedExit.ignored";
 		// 待機中（body 突入前）のキャンセルは自分の番で OCE
 		public const string CancelWaiting = "cancel.waiting.oce";
 		// 事前キャンセル済みは完全 no-op
@@ -22,15 +25,19 @@ namespace Tests.ScreenFramework.ModelBased
 
 		// preempt の犠牲者選別（rollback は殺す / commit は完走）
 		public const string PreemptKillsWaiting = "preempt.kills.waiting";
+		public const string PreemptKillsGatedInitialize = "preempt.kills.gatedInitialize";
 		public const string PreemptKillsGatedLoad = "preempt.kills.gatedLoad";
 		public const string PreemptKillsGatedAfterLoad = "preempt.kills.gatedAfterLoad";
 		public const string PreemptSparesGatedCommit = "preempt.spares.gatedCommit";
+		public const string PreemptSparesGatedExit = "preempt.spares.gatedExit";
 
 		// 各ゲート境界に正常到達して解放された（撹乱なしで通過）
+		public const string GateInitializeReleased = "gate.initialize.released";
 		public const string GateLoadReleased = "gate.load.released";
 		public const string GateAfterLoadReleased = "gate.afterLoad.released";
 		public const string GateCommitReleased = "gate.commit.released";
 		public const string GateAfterEnterReleased = "gate.afterEnter.released";
+		public const string GateExitReleased = "gate.exit.released";
 
 		// rollback フォールトはスタック無傷で伝播
 		public const string RollbackFaultConfigure = "rollback.fault.configure";
@@ -57,6 +64,11 @@ namespace Tests.ScreenFramework.ModelBased
 		public const string ResumeSuspended = "resume.suspended";
 		public const string KeepOnCoverSuspended = "keepOnCover.suspended";
 
+		// Stack モード（覆っても下画面を残す）/ Shutdown 途中差し
+		public const string StackCoverNoExit = "stack.cover.noExit";
+		public const string StackBlockerCreated = "stack.blocker.created";
+		public const string ShutdownFold = "shutdown.fold";
+
 		// History.Edit（Current より下の行の無音編集）
 		public const string EditImmediate = "edit.immediate";
 		public const string EditDeferred = "edit.deferred";
@@ -71,14 +83,16 @@ namespace Tests.ScreenFramework.ModelBased
 		/// <summary>網羅されるべきタグの全集合。Sweep_Coverage がスイープの union と突き合わせる。</summary>
 		public static readonly IReadOnlyList<string> All = new[]
 		{
-			CancelGatedLoad, CancelGatedAfterLoad, CancelGatedCommitIgnored, CancelGatedAfterEnterIgnored,
-			CancelWaiting, PreCanceledNoop,
-			PreemptKillsWaiting, PreemptKillsGatedLoad, PreemptKillsGatedAfterLoad, PreemptSparesGatedCommit,
-			GateLoadReleased, GateAfterLoadReleased, GateCommitReleased, GateAfterEnterReleased,
+			CancelGatedInitialize, CancelGatedLoad, CancelGatedAfterLoad, CancelGatedCommitIgnored, CancelGatedAfterEnterIgnored,
+			CancelGatedExitIgnored, CancelWaiting, PreCanceledNoop,
+			PreemptKillsWaiting, PreemptKillsGatedInitialize, PreemptKillsGatedLoad, PreemptKillsGatedAfterLoad,
+			PreemptSparesGatedCommit, PreemptSparesGatedExit,
+			GateInitializeReleased, GateLoadReleased, GateAfterLoadReleased, GateCommitReleased, GateAfterEnterReleased, GateExitReleased,
 			RollbackFaultConfigure, RollbackFaultInitialize, RollbackFaultBeforeLoad, RollbackFaultLoad,
 			RollbackFaultAfterLoad, RollbackFaultSpuriousOce,
 			CommitHookEnterAbsorbed, CommitHookAfterEnterAbsorbed,
 			PopToMiddleDiscard, CloseMiddle, DismissAllNonEmpty, DialogDelivered, DialogCanceled,
+			StackCoverNoExit, StackBlockerCreated, ShutdownFold,
 			RestoreSuccess, RestoreFaultDormantTop, ResumeSuspended, KeepOnCoverSuspended,
 			EditImmediate, EditDeferred, EditEmptyNoop, EditRemoveAt, EditRemoveByUid,
 			EditInsert, EditReplaceAt, EditClear, EditRemovedLiveEntry,

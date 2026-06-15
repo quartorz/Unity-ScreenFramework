@@ -39,6 +39,8 @@ namespace Tests.ScreenFramework.ModelBased
 		public Dictionary<int, bool> FinalAliveByUid = new();
 		/// <summary>回復プローブを積む直前の、スタック各画面の表示状態（uid → active）。最上段かつ Loaded のみ active。</summary>
 		public Dictionary<int, bool> PreProbeActiveByUid = new();
+		/// <summary>回復プローブを積む直前の、敷かれている modal blocker GameObject の期待個数（Stack モードのみ非 0）。</summary>
+		public int PreProbeBlockerCount;
 		/// <summary>このシナリオが到達した「撹乱×ゾーン」分岐のタグ（カバレッジ計測用。docs の網羅表に対応）。</summary>
 		public HashSet<string> CoverageTags = new();
 	}
@@ -76,16 +78,30 @@ namespace Tests.ScreenFramework.ModelBased
 					if (plan.Token == MbtTokenMode.CancelAfterIssue) m.CancelToken(i);
 				}
 			}
-			m.SettleAll(sc.Ops.Count);
+			// Shutdown は in-flight ゲート保持中（解放前）に差し込む。preempt な DismissAll として
+			// rollback ゾーンの遷移を巻き戻し、commit ゾーンの遷移は完走を待ってから全画面を畳む。
+			if (sc.ShutdownAtEnd) m.IssueShutdown();
+			m.SettleAll(m.IssuedCount);
 			m.DrainDeferredEdits();
 			var preProbeActive = m.BuildActiveMap();
-			m.ApplyProbe(probe);
-			var e = m.BuildExpectation(probe);
+			var preProbeBlockers = m.CountBlockers();
+			MbtExpectation e;
+			if (sc.ShutdownAtEnd)
+			{
+				// Shutdown は静的参照を畳む＝再 Initialize 必須なので、回復プローブは積まない。
+				e = m.BuildExpectation(probe);
+			}
+			else
+			{
+				m.ApplyProbe(probe);
+				e = m.BuildExpectation(probe);
+			}
 			e.PreProbeActiveByUid = preProbeActive;
+			e.PreProbeBlockerCount = preProbeBlockers;
 			return e;
 		}
 
-		enum OpState { NotIssued, Waiting, GatedLoad, GatedAfterLoad, GatedCommit, Settled }
+		enum OpState { NotIssued, Waiting, GatedInitialize, GatedLoad, GatedAfterLoad, GatedCommit, GatedExit, Settled }
 
 		sealed class MRow
 		{
@@ -97,6 +113,8 @@ namespace Tests.ScreenFramework.ModelBased
 			public bool AwaiterSettled;
 			public MbtDialogOutcome DialogOutcome = MbtDialogOutcome.NotApplicable;
 			public string DialogText;
+			/// <summary>Stack モードで modal なこの行に input blocker GameObject が敷かれているか（下に行があるとき生成）。</summary>
+			public bool HasBlocker;
 		}
 
 		sealed class MOp
@@ -120,6 +138,7 @@ namespace Tests.ScreenFramework.ModelBased
 			readonly List<string> _events = new();
 			readonly HashSet<string> _tags = new();
 			readonly List<MOp> _deferredEdits = new();
+			readonly bool _isStack;
 			MOp _chainTail;
 
 			void Tag(string t) => _tags.Add(t);
@@ -135,6 +154,7 @@ namespace Tests.ScreenFramework.ModelBased
 			public Machine(MbtScenario sc)
 			{
 				_ops = sc.Ops.Select((p, i) => new MOp { Plan = p, Index = i }).ToList();
+				_isStack = sc.StackMode == StackMode.Stack;
 			}
 
 			// ===== ドライバイベント =====
@@ -177,8 +197,10 @@ namespace Tests.ScreenFramework.ModelBased
 					{
 						if (victim == op || victim.State is OpState.Settled or OpState.NotIssued) continue;
 						if (victim.State == OpState.GatedCommit) { Tag(MbtCoverage.PreemptSparesGatedCommit); continue; }
+						if (victim.State == OpState.GatedExit) { Tag(MbtCoverage.PreemptSparesGatedExit); continue; }
 						victim.CtsCanceled = true;
 						if (victim.State == OpState.Waiting) Tag(MbtCoverage.PreemptKillsWaiting);
+						if (victim.State == OpState.GatedInitialize) { Tag(MbtCoverage.PreemptKillsGatedInitialize); gatedVictim = victim; }
 						if (victim.State == OpState.GatedLoad) { Tag(MbtCoverage.PreemptKillsGatedLoad); gatedVictim = victim; }
 						if (victim.State == OpState.GatedAfterLoad) { Tag(MbtCoverage.PreemptKillsGatedAfterLoad); gatedVictim = victim; }
 					}
@@ -199,9 +221,14 @@ namespace Tests.ScreenFramework.ModelBased
 				var op = _ops[i];
 				if (op.State == OpState.Settled) return;
 				op.CtsCanceled = true;
-				if (op.State is OpState.GatedLoad or OpState.GatedAfterLoad)
+				if (op.State is OpState.GatedInitialize or OpState.GatedLoad or OpState.GatedAfterLoad)
 				{
-					Tag(op.State == OpState.GatedLoad ? MbtCoverage.CancelGatedLoad : MbtCoverage.CancelGatedAfterLoad);
+					Tag(op.State switch
+					{
+						OpState.GatedInitialize => MbtCoverage.CancelGatedInitialize,
+						OpState.GatedLoad => MbtCoverage.CancelGatedLoad,
+						_ => MbtCoverage.CancelGatedAfterLoad,
+					});
 					AddEnd(op.Plan.Kind, ok: false);
 					SettleChain(op, MbtOutcome.Oce);
 				}
@@ -211,6 +238,10 @@ namespace Tests.ScreenFramework.ModelBased
 						? MbtCoverage.CancelGatedAfterEnterIgnored
 						: MbtCoverage.CancelGatedCommitIgnored);
 				}
+				else if (op.State == OpState.GatedExit)
+				{
+					Tag(MbtCoverage.CancelGatedExitIgnored);
+				}
 				// Waiting: 自分の番で OCE（TryRun でタグ付け）。GatedCommit: 外部 ct は commit ゾーンでは無視（完走）。
 			}
 
@@ -219,9 +250,27 @@ namespace Tests.ScreenFramework.ModelBased
 			bool ChainInFlight()
 			{
 				foreach (var o in _ops)
-					if (o.State is OpState.Waiting or OpState.GatedLoad or OpState.GatedAfterLoad or OpState.GatedCommit)
+					if (o.State is OpState.Waiting or OpState.GatedInitialize or OpState.GatedLoad or OpState.GatedAfterLoad or OpState.GatedCommit or OpState.GatedExit)
 						return true;
 				return false;
+			}
+
+			/// <summary>発行済み op 数（合成 Shutdown op を含む）。最終 SettleAll の範囲に使う。</summary>
+			public int IssuedCount => _ops.Count;
+
+			/// <summary>
+			/// ScreenNavigator.Shutdown 相当。捕捉済みレイヤーへの preempt な DismissAll として
+			/// チェーン末尾に合成 op を積む。観測対象の op ではないので outcome は検査しない。
+			/// </summary>
+			public void IssueShutdown()
+			{
+				Tag(MbtCoverage.ShutdownFold);
+				_ops.Add(new MOp
+				{
+					Plan = new MbtOp { Kind = MbtOpKind.DismissAll, Priority = InterruptPriority.Preempt, Overlap = true },
+					Index = _ops.Count,
+				});
+				Issue(_ops.Count - 1);
 			}
 
 			public void IssueEdit(int i)
@@ -324,13 +373,21 @@ namespace Tests.ScreenFramework.ModelBased
 					var op = _ops[i];
 					if (op.GateReleased) continue;
 					op.GateReleased = true;
-					if (op.State == OpState.GatedLoad) { Tag(MbtCoverage.GateLoadReleased); ContinueAfterLoad(op); }
+					if (op.State == OpState.GatedInitialize) { Tag(MbtCoverage.GateInitializeReleased); ContinueAfterLoad(op); }
+					else if (op.State == OpState.GatedLoad) { Tag(MbtCoverage.GateLoadReleased); ContinueAfterLoad(op); }
 					else if (op.State == OpState.GatedAfterLoad) { Tag(MbtCoverage.GateAfterLoadReleased); ResumeAfterLoadGate(op); }
 					else if (op.State == OpState.GatedCommit)
 					{
 						Tag(op.Plan.Gate == MbtGateMode.HoldAfterEnter
 							? MbtCoverage.GateAfterEnterReleased : MbtCoverage.GateCommitReleased);
 						FinishCommit(op);
+					}
+					else if (op.State == OpState.GatedExit)
+					{
+						Tag(MbtCoverage.GateExitReleased);
+						var outcome = ApplyPopLike(op);
+						AddEnd(op.Plan.Kind, ok: outcome == MbtOutcome.Success);
+						SettleChain(op, outcome);
 					}
 					// Waiting / Settled: 解放だけ記録（後で body がゲートに来ても素通りする）
 				}
@@ -341,7 +398,8 @@ namespace Tests.ScreenFramework.ModelBased
 			{
 				var map = new Dictionary<int, bool>();
 				for (var i = 0; i < _stack.Count; i++)
-					map[_stack[i].Spec.Uid] = _stack[i].Loaded && i == _stack.Count - 1;
+					// Cover は最上段の loaded だけ active。Stack は覆っても残るので loaded 行は全て active。
+					map[_stack[i].Spec.Uid] = _stack[i].Loaded && (_isStack || i == _stack.Count - 1);
 				return map;
 			}
 
@@ -433,6 +491,11 @@ namespace Tests.ScreenFramework.ModelBased
 							Tag(MbtCoverage.CommitHookAfterEnterAbsorbed);
 							break;
 					}
+					if (plan.Gate == MbtGateMode.HoldInitialize && !op.GateReleased)
+					{
+						op.State = OpState.GatedInitialize;
+						return;
+					}
 					if (plan.Gate == MbtGateMode.HoldLoad && !op.GateReleased)
 					{
 						op.State = OpState.GatedLoad;
@@ -447,6 +510,13 @@ namespace Tests.ScreenFramework.ModelBased
 						// ctx 構築（Configure 評価）は破棄を一切始める前。スタック無傷で伝播する。
 						AddEnd(plan.Kind, ok: false);
 						SettleChain(op, MbtOutcome.Faulted);
+						return;
+					}
+					// 退場 hook（OnBeforeExit）での停止は commit ゾーン。退場効果はまだ適用していないので、
+					// 解放されるまでスタックは退場前のまま保たれる。外部キャンセルは無視され preempt も完走を待つ。
+					if (plan.Kind == MbtOpKind.Pop && plan.Gate == MbtGateMode.HoldExit && !op.GateReleased)
+					{
+						op.State = OpState.GatedExit;
 						return;
 					}
 					var outcome = ApplyPopLike(op);
@@ -505,12 +575,16 @@ namespace Tests.ScreenFramework.ModelBased
 					case MbtOpKind.Push:
 					case MbtOpKind.PushAndAwait:
 						CoverTop();
+						var pushHadBelow = _stack.Count >= 1;
 						AddNewRow(op);
+						SetBlocker(_stack[^1], pushHadBelow);
 						break;
 					case MbtOpKind.Replace:
 						if (_stack.Count == 0) { AddNewRow(op); break; }
 						DestroyInstanceIfLoaded(_stack[^1]);
+						var replaceHadBelow = _stack.Count >= 2;
 						_stack[^1] = NewRow(op);
+						SetBlocker(_stack[^1], replaceHadBelow);
 						break;
 					case MbtOpKind.Change:
 						if (_stack.Count == 0) { AddNewRow(op); break; }
@@ -598,14 +672,31 @@ namespace Tests.ScreenFramework.ModelBased
 					below.Loaded = true;
 					below.Suspended = false;
 					below.EntryAlive = false;   // 復元は新インスタンス。元の IScreenEntry は死ぬ
+					SetBlocker(below, _stack.Count >= 2);   // 復元画面も push 時と同じ規則で blocker 再構成（下に行があれば）
 					return MbtOutcome.Success;
 				}
 				if (below.Suspended) { Tag(MbtCoverage.ResumeSuspended); below.Suspended = false; }   // OnResume の例外は吸収される
 				return MbtOutcome.Success;
 			}
 
+			void SetBlocker(MRow row, bool hasBelow)
+			{
+				if (!_isStack || !hasBelow) return;   // blocker は Stack モードかつ下に行があるときだけ敷かれる（modal は既定 true）
+				row.HasBlocker = true;
+				Tag(MbtCoverage.StackBlockerCreated);
+			}
+
+			public int CountBlockers()
+			{
+				var n = 0;
+				foreach (var row in _stack) if (row.HasBlocker) n++;
+				return n;
+			}
+
 			void CoverTop()
 			{
+				// Stack モードは覆っても下画面を退場させない（suspend も destroy もせず loaded のまま残す）。
+				if (_isStack) { if (_stack.Count > 0 && _stack[^1].Loaded) Tag(MbtCoverage.StackCoverNoExit); return; }
 				if (_stack.Count == 0) return;
 				var prev = _stack[^1];
 				if (!prev.Loaded) return;   // dormant は退場フェーズなし

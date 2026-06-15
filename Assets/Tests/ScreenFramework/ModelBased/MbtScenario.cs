@@ -33,13 +33,23 @@ namespace Tests.ScreenFramework.ModelBased
 		CancelAfterIssue,
 	}
 
+	/// <summary>
+	/// in-flight 遷移を await 境界で停止させる位置。割り込み（preempt）/ 外部キャンセルは
+	/// 「進行中の 1 本がどの境界で滞留しているか」でしか着弾できない（Run は遷移を直列化する）ため、
+	/// 停止位置 = 撹乱の着弾点。rollback ゾーン（HoldLoad / HoldAfterLoad）の停止中に来た撹乱は OCE で
+	/// 巻き戻し、commit ゾーン（HoldCommit / HoldAfterEnter）の停止中に来た外部キャンセルは無視されて完走する。
+	/// </summary>
 	public enum MbtGateMode
 	{
 		None,
-		/// <summary>handle.Load を外部解放まで停止する（rollback ゾーン滞留）。</summary>
+		/// <summary>handle.Load を外部解放まで停止する（rollback ゾーンの前段）。</summary>
 		HoldLoad,
-		/// <summary>OnBeforeEnter を外部解放まで停止する（commit ゾーン滞留）。</summary>
+		/// <summary>OnAfterLoad を外部解放まで停止する（rollback ゾーンの最終境界 = commit へ移る直前）。</summary>
+		HoldAfterLoad,
+		/// <summary>OnBeforeEnter を外部解放まで停止する（commit ゾーンの先頭境界）。</summary>
 		HoldCommit,
+		/// <summary>OnAfterEnter を外部解放まで停止する（commit ゾーンの最終境界）。</summary>
+		HoldAfterEnter,
 	}
 
 	public enum MbtOpFault
@@ -206,8 +216,10 @@ namespace Tests.ScreenFramework.ModelBased
 
 					op.Gate = rng.Next(100) switch
 					{
-						< 30 => MbtGateMode.HoldLoad,
-						< 45 => MbtGateMode.HoldCommit,
+						< 22 => MbtGateMode.HoldLoad,
+						< 37 => MbtGateMode.HoldAfterLoad,
+						< 52 => MbtGateMode.HoldCommit,
+						< 62 => MbtGateMode.HoldAfterEnter,
 						_ => MbtGateMode.None,
 					};
 					if (rng.Next(100) < 25) op.Fault = PickPushFault(rng);
@@ -215,8 +227,14 @@ namespace Tests.ScreenFramework.ModelBased
 					if (op.Fault is MbtOpFault.ConfigureThrows or MbtOpFault.OnInitializeThrows
 						or MbtOpFault.OnBeforeLoadThrows or MbtOpFault.LoadThrows or MbtOpFault.SpuriousOceOnBeforeLoad)
 						op.Gate = MbtGateMode.None;
-					// 同一 hook（OnBeforeEnter）への gate と fault の同居は避ける
+					// OnAfterLoad の例外はその hook で発火するので、それ以降に停止する gate には到達しない
+					if (op.Fault == MbtOpFault.OnAfterLoadThrows
+						&& op.Gate is MbtGateMode.HoldAfterLoad or MbtGateMode.HoldCommit or MbtGateMode.HoldAfterEnter)
+						op.Gate = MbtGateMode.None;
+					// 同一 hook に gate と fault を同居させない（停止する hook 自身が throw すると停止できない）
 					if (op.Fault == MbtOpFault.EnterHookThrows && op.Gate == MbtGateMode.HoldCommit)
+						op.Gate = MbtGateMode.None;
+					if (op.Fault == MbtOpFault.OnAfterEnterThrows && op.Gate == MbtGateMode.HoldAfterEnter)
 						op.Gate = MbtGateMode.None;
 				}
 				else

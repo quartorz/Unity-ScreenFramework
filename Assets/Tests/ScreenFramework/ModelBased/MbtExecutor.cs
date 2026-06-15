@@ -49,6 +49,42 @@ namespace Tests.ScreenFramework.ModelBased
 		}
 	}
 
+	/// <summary>
+	/// SetActive / SetParent を記録する観測用 view。同一 uid で複数回ロードされても（復元ロード）
+	/// world.ViewByUid には最後に作られた＝現役のインスタンスが残るよう、生成時に上書き登録する。
+	/// </summary>
+	internal sealed class MbtView : IScreenViewInstance
+	{
+		public readonly int Uid;
+		public bool Active;
+		public bool HasParent;
+
+		public MbtView(int uid, MbtWorld world)
+		{
+			Uid = uid;
+			world.ViewByUid[uid] = this;
+		}
+
+		public void SetActive(bool active) => Active = active;
+		public void SetParent(Transform parent) => HasParent = parent != null;
+		public T As<T>() where T : class => null;
+	}
+
+	internal static class MbtGate
+	{
+		/// <summary>
+		/// rollback ゾーンの hook で停止するためのゲート待ち。hook は本物の ct を受け取るので、
+		/// 停止中に来た preempt / 外部キャンセルがゲートを解いて OCE を伝播させられるよう ct を登録する。
+		/// gate が null なら停止しない。
+		/// </summary>
+		public static async UniTask AwaitRollback(UniTaskCompletionSource gate, CancellationToken ct)
+		{
+			if (gate == null) return;
+			using (ct.Register(() => gate.TrySetCanceled(ct)))
+				await gate.Task;
+		}
+	}
+
 	public interface IMbtId
 	{
 		MbtScreenSpec Spec { get; }
@@ -76,6 +112,7 @@ namespace Tests.ScreenFramework.ModelBased
 		public readonly Dictionary<int, int> InstanceCount = new();
 		public readonly List<MbtHandle> Handles = new();
 		public readonly Dictionary<int, IScreenEntry> Entries = new();
+		public readonly Dictionary<int, MbtView> ViewByUid = new();
 		public readonly List<string> Events = new();
 
 		public IScreenPresenter CreatePresenter(MbtScreenSpec spec)
@@ -98,7 +135,7 @@ namespace Tests.ScreenFramework.ModelBased
 			var initial = InstanceCount.TryGetValue(spec.Uid, out var c) && c == 1;
 			var op = initial && OpBySpecUid.TryGetValue(spec.Uid, out var o) ? o : null;
 			var gate = initial && RuntimeBySpecUid.TryGetValue(spec.Uid, out var r) ? r.LoadGate : null;
-			var handle = new MbtHandle(spec, op, gate);
+			var handle = new MbtHandle(spec, op, gate, this);
 			Handles.Add(handle);
 			return handle;
 		}
@@ -110,7 +147,9 @@ namespace Tests.ScreenFramework.ModelBased
 		public CancellationTokenSource Cts;
 		public UniTask<MbtObserved> Task;
 		public UniTaskCompletionSource<IScreenViewInstance> LoadGate;
+		public UniTaskCompletionSource AfterLoadGate;
 		public UniTaskCompletionSource CommitGate;
+		public UniTaskCompletionSource AfterEnterGate;
 		public bool GatesReleased;
 	}
 
@@ -126,15 +165,17 @@ namespace Tests.ScreenFramework.ModelBased
 		readonly MbtScreenSpec _spec;
 		readonly MbtOp _op;   // 初回ロードのみ非 null
 		readonly UniTaskCompletionSource<IScreenViewInstance> _gate;
+		readonly MbtWorld _world;
 
 		public MbtScreenSpec Spec => _spec;
 		public bool UnloadCalled { get; private set; }
 
-		public MbtHandle(MbtScreenSpec spec, MbtOp op, UniTaskCompletionSource<IScreenViewInstance> gate)
+		public MbtHandle(MbtScreenSpec spec, MbtOp op, UniTaskCompletionSource<IScreenViewInstance> gate, MbtWorld world)
 		{
 			_spec = spec;
 			_op = op;
 			_gate = gate;
+			_world = world;
 		}
 
 		public async UniTask<IScreenViewInstance> Load(IProgress<float> p, CancellationToken ct)
@@ -153,7 +194,7 @@ namespace Tests.ScreenFramework.ModelBased
 			{
 				throw new InvalidOperationException($"mbt: restore load fault ({_spec.Label})");
 			}
-			return new NopView();
+			return new MbtView(_spec.Uid, _world);
 		}
 
 		public UniTask Unload(CancellationToken ct)
@@ -192,10 +233,12 @@ namespace Tests.ScreenFramework.ModelBased
 			return UniTask.CompletedTask;
 		}
 
-		UniTask IScreenPresenter.OnAfterLoad(IScreenViewInstance v, INavigationDataReader r, ITransitionContext x, CancellationToken ct)
-			=> _op?.Fault == MbtOpFault.OnAfterLoadThrows
-				? throw new InvalidOperationException($"mbt: OnAfterLoad fault ({_spec.Label})")
-				: UniTask.CompletedTask;
+		async UniTask IScreenPresenter.OnAfterLoad(IScreenViewInstance v, INavigationDataReader r, ITransitionContext x, CancellationToken ct)
+		{
+			if (_op?.Fault == MbtOpFault.OnAfterLoadThrows)
+				throw new InvalidOperationException($"mbt: OnAfterLoad fault ({_spec.Label})");
+			await MbtGate.AwaitRollback(_rt?.AfterLoadGate, ct);
+		}
 
 		UniTask IScreenPresenter.OnBeforeEnter(INavigationDataReader r, ITransitionContext x, CancellationToken ct)
 		{
@@ -206,9 +249,12 @@ namespace Tests.ScreenFramework.ModelBased
 		}
 
 		UniTask IScreenPresenter.OnAfterEnter(INavigationDataReader r, ITransitionContext x, CancellationToken ct)
-			=> _op?.Fault == MbtOpFault.OnAfterEnterThrows
-				? throw new InvalidOperationException($"mbt: OnAfterEnter fault ({_spec.Label})")
-				: UniTask.CompletedTask;
+		{
+			if (_op?.Fault == MbtOpFault.OnAfterEnterThrows)
+				throw new InvalidOperationException($"mbt: OnAfterEnter fault ({_spec.Label})");
+			if (_rt?.AfterEnterGate != null) return _rt.AfterEnterGate.Task;
+			return UniTask.CompletedTask;
+		}
 
 		UniTask IScreenPresenter.OnBeforeExit(INavigationDataWriter w, ITransitionContext x, CancellationToken ct)
 			=> (_spec.Faults & MbtScreenFaults.BeforeExitThrows) != 0
@@ -263,12 +309,12 @@ namespace Tests.ScreenFramework.ModelBased
 			return UniTask.CompletedTask;
 		}
 
-		protected override UniTask OnAfterLoad(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct)
+		protected override async UniTask OnAfterLoad(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct)
 		{
 			if (_spec.DialogResult != null) SetResult(new EchoResult { Text = _spec.DialogResult });
 			if (_op?.Fault == MbtOpFault.OnAfterLoadThrows)
 				throw new InvalidOperationException($"mbt: OnAfterLoad fault ({_spec.Label})");
-			return UniTask.CompletedTask;
+			await MbtGate.AwaitRollback(_rt?.AfterLoadGate, ct);
 		}
 
 		protected override UniTask OnBeforeEnter(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct)
@@ -280,9 +326,12 @@ namespace Tests.ScreenFramework.ModelBased
 		}
 
 		protected override UniTask OnAfterEnter(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct)
-			=> _op?.Fault == MbtOpFault.OnAfterEnterThrows
-				? throw new InvalidOperationException($"mbt: OnAfterEnter fault ({_spec.Label})")
-				: UniTask.CompletedTask;
+		{
+			if (_op?.Fault == MbtOpFault.OnAfterEnterThrows)
+				throw new InvalidOperationException($"mbt: OnAfterEnter fault ({_spec.Label})");
+			if (_rt?.AfterEnterGate != null) return _rt.AfterEnterGate.Task;
+			return UniTask.CompletedTask;
+		}
 
 		protected override UniTask OnBeforeExitCore(ITransitionContext ctx, CancellationToken ct)
 			=> (_spec.Faults & MbtScreenFaults.BeforeExitThrows) != 0
@@ -362,16 +411,30 @@ namespace Tests.ScreenFramework.ModelBased
 				for (var i = 0; i < n; i++)
 				{
 					var plan = sc.Ops[i];
-					if (!plan.Overlap) ReleaseGates(rts, i);
+					if (!plan.Overlap) ReleaseGates(rts, i, world);
 					rts[i] = Issue(nav, world, plan);
 					if (plan.Token == MbtTokenMode.CancelAfterIssue) rts[i].Cts?.Cancel();
 				}
-				ReleaseGates(rts, n);
+				ReleaseGates(rts, n, world);
 
 				if (nav.IsTransitioning)
 				{
 					report.Failures.Add("P5: 全ゲート解放後も遷移チェーンが収束しない（ハングの疑い）");
 					return report;   // probe を発行するとデッドロックするのでここで打ち切る
+				}
+
+				// P7 表示状態: プローブを積む前に、生きている各画面の active が「最上段かつ Loaded のみ true」
+				// になっていること（覆われた・suspended・dormant は非表示）。プローブで全段が覆われる前に観測する。
+				foreach (var kv in expect.PreProbeActiveByUid)
+				{
+					if (!world.ViewByUid.TryGetValue(kv.Key, out var view))
+					{
+						if (kv.Value)
+							report.Failures.Add($"P7: S{kv.Key} は active のはずだが view が存在しない");
+						continue;
+					}
+					if (view.Active != kv.Value)
+						report.Failures.Add($"P7: S{kv.Key} の active={view.Active}（期待: {kv.Value}）");
 				}
 
 				// P5 回復プローブ（C8）: どんなシナリオの後でも次の操作が成立する。
@@ -426,6 +489,12 @@ namespace Tests.ScreenFramework.ModelBased
 					report.Failures.Add(
 						$"P1: 最終スタック [{string.Join(", ", actualStack)}]（期待: [{string.Join(", ", expect.FinalStackLabels)}]）");
 
+				// P9 Current 整合: Current は常に最上段の identifier。History の末尾と一致すること。
+				var expectedTop = expect.FinalStackLabels.Count > 0 ? expect.FinalStackLabels[^1] : null;
+				var actualCurrent = nav.Current is IMbtId cm ? cm.Spec.Label : nav.Current?.ToString();
+				if (!string.Equals(actualCurrent, expectedTop))
+					report.Failures.Add($"P9: Current が \"{actualCurrent}\"（期待: \"{expectedTop}\"）");
+
 				// P3: 遷移イベント列
 				if (!world.Events.SequenceEqual(expect.Events))
 					report.Failures.Add(
@@ -462,15 +531,17 @@ namespace Tests.ScreenFramework.ModelBased
 		}
 
 		/// <summary>発行済み op のゲートを op 順（= チェーン順）に解放する。参照モデルの SettleAll と同じ順序。</summary>
-		static void ReleaseGates(MbtOpRuntime[] rts, int count)
+		static void ReleaseGates(MbtOpRuntime[] rts, int count, MbtWorld world)
 		{
 			for (var i = 0; i < count; i++)
 			{
 				var rt = rts[i];
 				if (rt == null || rt.GatesReleased) continue;
 				rt.GatesReleased = true;
-				rt.LoadGate?.TrySetResult(new NopView());
+				rt.LoadGate?.TrySetResult(new MbtView(rt.Plan.Screen.Uid, world));
+				rt.AfterLoadGate?.TrySetResult();
 				rt.CommitGate?.TrySetResult();
+				rt.AfterEnterGate?.TrySetResult();
 			}
 		}
 
@@ -488,7 +559,9 @@ namespace Tests.ScreenFramework.ModelBased
 			if (plan.IsPushLike)
 			{
 				if (plan.Gate == MbtGateMode.HoldLoad) rt.LoadGate = new UniTaskCompletionSource<IScreenViewInstance>();
+				if (plan.Gate == MbtGateMode.HoldAfterLoad) rt.AfterLoadGate = new UniTaskCompletionSource();
 				if (plan.Gate == MbtGateMode.HoldCommit) rt.CommitGate = new UniTaskCompletionSource();
+				if (plan.Gate == MbtGateMode.HoldAfterEnter) rt.AfterEnterGate = new UniTaskCompletionSource();
 				world.OpBySpecUid[plan.Screen.Uid] = plan;
 				world.RuntimeBySpecUid[plan.Screen.Uid] = rt;
 			}

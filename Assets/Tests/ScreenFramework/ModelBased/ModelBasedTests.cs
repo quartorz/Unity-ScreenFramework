@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Cysharp.Threading.Tasks;
 using NUnit.Framework;
@@ -205,6 +207,62 @@ namespace Tests.ScreenFramework.ModelBased
 		}
 
 		[Test]
+		public async Task Pinned_CancelAtAfterLoad_RollsBack()
+		{
+			// rollback ゾーンの最終境界（OnAfterLoad 滞留中）に着弾した外部キャンセルは OCE で巻き戻り、
+			// 既存スタックは無傷で残る（C2 の rollback 側）。commit ゾーンが OnAfterLoad まで早まると RED になる。
+			var sc = new MbtScenario();
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 1, Label = "S1" } });
+			sc.Ops.Add(new MbtOp
+			{
+				Kind = MbtOpKind.Push,
+				Screen = new MbtScreenSpec { Uid = 2, Label = "S2" },
+				Gate = MbtGateMode.HoldAfterLoad,
+				Token = MbtTokenMode.CancelAfterIssue,
+			});
+			await AssertScenario(sc);
+		}
+
+		[Test]
+		public async Task Pinned_CancelAtAfterEnter_IsIgnored_AndPushCompletes()
+		{
+			// commit ゾーンの最終境界（OnAfterEnter 滞留中）の外部キャンセルは無視され、push は完走する（C2 の commit 側）。
+			// commit ゾーンが OnAfterEnter まで届いていないと RED になる。
+			var sc = new MbtScenario();
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 1, Label = "S1" } });
+			sc.Ops.Add(new MbtOp
+			{
+				Kind = MbtOpKind.Push,
+				Screen = new MbtScreenSpec { Uid = 2, Label = "S2" },
+				Gate = MbtGateMode.HoldAfterEnter,
+				Token = MbtTokenMode.CancelAfterIssue,
+			});
+			await AssertScenario(sc);
+		}
+
+		[Test]
+		public async Task Pinned_PreemptAtAfterLoad_LoserRollsBack_WinnerWins()
+		{
+			// OnAfterLoad 滞留中（rollback の最終境界）の遷移は生きた Preempt に正当に巻き戻される（C3）。
+			// Pinned_PreemptDuringLoad の「より遅い境界」版。
+			var sc = new MbtScenario();
+			sc.Ops.Add(new MbtOp
+			{
+				Kind = MbtOpKind.Push,
+				Screen = new MbtScreenSpec { Uid = 1, Label = "S1" },
+				Gate = MbtGateMode.HoldAfterLoad,
+			});
+			sc.Ops.Add(new MbtOp
+			{
+				Kind = MbtOpKind.Push,
+				Screen = new MbtScreenSpec { Uid = 2, Label = "S2" },
+				Priority = InterruptPriority.Preempt,
+				Overlap = true,
+			});
+			await AssertScenario(sc);
+		}
+
+		[Test]
 		public async Task Pinned_DialogDelivery_NormalPopDelivers_SweepCancels()
 		{
 			// C4: 正常 Pop で結果配送、Replace による差し替えで OCE。
@@ -242,6 +300,61 @@ namespace Tests.ScreenFramework.ModelBased
 
 		[Test]
 		public Task Sweep_Seeds_200_299() => Sweep(200, 300);
+
+		// ===========================================================================
+		// カバレッジ（網羅漏れ＝語彙/重みの穴を機械検出する。フレームワークは実行せずモデルだけ評価）
+		// ===========================================================================
+
+		[Test]
+		public void Coverage_Sweep_ExercisesEveryBranchAndVocabulary()
+		{
+			const int seeds = 3000;
+			var probe = new MbtScreenSpec { Uid = 999999, Label = "PROBE" };
+
+			var tags = new HashSet<string>();
+			var kinds = new HashSet<MbtOpKind>();
+			var faults = new HashSet<MbtOpFault>();
+			var gates = new HashSet<MbtGateMode>();
+			var tokens = new HashSet<MbtTokenMode>();
+			var screenFaults = new HashSet<MbtScreenFaults>();
+
+			for (var seed = 0; seed < seeds; seed++)
+			{
+				var sc = MbtGenerator.Generate(seed);
+				tags.UnionWith(MbtReferenceModel.Evaluate(sc, probe).CoverageTags);
+				foreach (var op in sc.Ops)
+				{
+					kinds.Add(op.Kind);
+					faults.Add(op.Fault);
+					gates.Add(op.Gate);
+					tokens.Add(op.Token);
+					if (op.Screen != null)
+					{
+						foreach (MbtScreenFaults f in Enum.GetValues(typeof(MbtScreenFaults)))
+							if (f != MbtScreenFaults.None && (op.Screen.Faults & f) != 0) screenFaults.Add(f);
+					}
+				}
+			}
+
+			var missing = new List<string>();
+			foreach (var t in MbtCoverage.All)
+				if (!tags.Contains(t)) missing.Add("tag: " + t);
+			foreach (MbtOpKind k in Enum.GetValues(typeof(MbtOpKind)))
+				if (!kinds.Contains(k)) missing.Add("kind: " + k);
+			foreach (MbtOpFault f in Enum.GetValues(typeof(MbtOpFault)))
+				if (!faults.Contains(f)) missing.Add("fault: " + f);
+			foreach (MbtGateMode g in Enum.GetValues(typeof(MbtGateMode)))
+				if (!gates.Contains(g)) missing.Add("gate: " + g);
+			foreach (MbtTokenMode tk in Enum.GetValues(typeof(MbtTokenMode)))
+				if (!tokens.Contains(tk)) missing.Add("token: " + tk);
+			foreach (MbtScreenFaults f in Enum.GetValues(typeof(MbtScreenFaults)))
+				if (f != MbtScreenFaults.None && !screenFaults.Contains(f)) missing.Add("screenFault: " + f);
+
+			if (missing.Count > 0)
+				Assert.Fail(
+					$"{seeds} シードで未到達の網羅項目（= 生成器/語彙の穴。重み調整か新フォールトで塞ぐか、" +
+					$"到達不能なら catalog から外す）:\n  {string.Join("\n  ", missing)}");
+		}
 
 		// ===========================================================================
 		// 補助

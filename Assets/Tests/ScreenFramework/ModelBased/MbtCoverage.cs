@@ -3,10 +3,9 @@ using System.Collections.Generic;
 namespace Tests.ScreenFramework.ModelBased
 {
 	/// <summary>
-	/// 参照モデルが到達した「撹乱×ゾーン」分岐のタグ集合。スイープ全体でこのカタログを union し、
-	/// 1 つでも未到達のタグがあれば「生成器がその交点を作れていない＝語彙/重みの穴」を意味する。
-	/// commit hook の 5 点漏れ（2026-06-13 に手作業の引退精査で発見）のような穴を、人手のレビューでなく
-	/// スイープの数値で機械検出するための土台。タグの発火点は MbtReferenceModel の各分岐。
+	/// 参照モデルが到達した「撹乱×ゾーン」分岐のタグ集合。Sweep_Coverage がスイープ全体でこのカタログを
+	/// union し、未到達のタグがあれば生成器がその交点を作れていない（語彙/重みの穴）ことを表す。
+	/// タグの発火点は MbtReferenceModel の各分岐。
 	/// </summary>
 	public static class MbtCoverage
 	{
@@ -58,6 +57,17 @@ namespace Tests.ScreenFramework.ModelBased
 		public const string ResumeSuspended = "resume.suspended";
 		public const string KeepOnCoverSuspended = "keepOnCover.suspended";
 
+		// History.Edit（Current より下の行の無音編集）
+		public const string EditImmediate = "edit.immediate";
+		public const string EditDeferred = "edit.deferred";
+		public const string EditEmptyNoop = "edit.emptyNoop";
+		public const string EditRemoveAt = "edit.removeAt";
+		public const string EditRemoveByUid = "edit.removeByUid";
+		public const string EditInsert = "edit.insert";
+		public const string EditReplaceAt = "edit.replaceAt";
+		public const string EditClear = "edit.clear";
+		public const string EditRemovedLiveEntry = "edit.removedLiveEntry";
+
 		/// <summary>網羅されるべきタグの全集合。Sweep_Coverage がスイープの union と突き合わせる。</summary>
 		public static readonly IReadOnlyList<string> All = new[]
 		{
@@ -70,6 +80,8 @@ namespace Tests.ScreenFramework.ModelBased
 			CommitHookEnterAbsorbed, CommitHookAfterEnterAbsorbed,
 			PopToMiddleDiscard, CloseMiddle, DismissAllNonEmpty, DialogDelivered, DialogCanceled,
 			RestoreSuccess, RestoreFaultDormantTop, ResumeSuspended, KeepOnCoverSuspended,
+			EditImmediate, EditDeferred, EditEmptyNoop, EditRemoveAt, EditRemoveByUid,
+			EditInsert, EditReplaceAt, EditClear, EditRemovedLiveEntry,
 		};
 	}
 }

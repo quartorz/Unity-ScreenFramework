@@ -10,9 +10,9 @@ using UnityEngine.TestTools;
 namespace Tests.ScreenFramework
 {
 	/// <summary>
-	/// History.Edit が _live（履歴と並走する LiveEntry リスト）と同期して編集されることのテスト。
-	/// 以前は履歴だけが書き換わり、Edit 後の Pop が別画面を復元したり
-	/// IndexOutOfRange になったりするバグがあった。
+	/// History.Edit のうち <b>MBT 語彙外</b>のもの（callback の中から遷移 API を呼ぶ／編集をネストする
+	/// 異常系：スナップショット陳腐化・遅延消化・例外隔離）だけを検証する。
+	/// 基本の _live 同期はモデルベーステスト（ModelBased/）がカバーする。
 	/// </summary>
 	public sealed class HistoryEditTests
 	{
@@ -33,97 +33,6 @@ namespace Tests.ScreenFramework
 		public void TearDown()
 		{
 			ScreenTestFixtures.DestroyContainer(_container);
-		}
-
-		[Test]
-		public async Task Edit_RemovedLiveRow_IsUnloadedAndPopStaysConsistent()
-		{
-			var handleA = new InstantHandle();
-			var presenterA = new TrackingPresenter();
-			await _nav.Push(new ControllableScreenId(handleA, () => presenterA));
-			await _nav.Push(new MarkerScreenId("top"));
-
-			// KeepOnCover なので A のインスタンスは生きている。Edit で A の行を履歴から外す
-			_nav.History.Edit(e => e.RemoveAt(0));
-
-			Assert.AreEqual(1, _nav.History.Count);
-			// 外れた行の生き残りインスタンスは無音で Unload され、補償フックが呼ばれる
-			Assert.IsTrue(handleA.UnloadCalled);
-			Assert.IsTrue(presenterA.OnAfterUnloadCalled);
-
-			// 履歴 1 枚なので Pop はガードで no-op。内部不整合による例外も出ない
-			await _nav.Pop();
-			Assert.AreEqual(1, _nav.History.Count);
-			Assert.AreEqual(new MarkerScreenId("top"), _nav.Current);
-		}
-
-		[Test]
-		public async Task Edit_InsertedRow_IsDormant_AndPopLoadsIt()
-		{
-			await _nav.Push(new MarkerScreenId("home"));
-			await _nav.Push(new MarkerScreenId("top"));
-
-			_nav.History.Edit(e => e.Insert(1, new MarkerScreenId("inserted")));
-
-			Assert.AreEqual(3, _nav.History.Count);
-
-			// 挿入行は dormant として入り、Pop で到達した時にロードされて Current になる
-			await _nav.Pop();
-			Assert.AreEqual(2, _nav.History.Count);
-			Assert.AreEqual(new MarkerScreenId("inserted"), _nav.Current);
-		}
-
-		[Test]
-		public async Task Edit_StackProperty_RawListOps_StaySynced()
-		{
-			var handleA = new InstantHandle();
-			await _nav.Push(new ControllableScreenId(handleA));
-			await _nav.Push(new MarkerScreenId("middle"));
-			await _nav.Push(new MarkerScreenId("top"));
-
-			// 生の IList 操作（indexer set）でも同期される。差し替えは別画面化なので
-			// 元の生き残りインスタンスは破棄される
-			_nav.History.Edit(e => e.Stack[0] = new MarkerScreenId("replaced"));
-
-			Assert.AreEqual(3, _nav.History.Count);
-			Assert.AreEqual(new MarkerScreenId("replaced"), _nav.History[0]);
-			Assert.IsTrue(handleA.UnloadCalled);
-
-			// middle → replaced と順に Pop でき、差し替え後の Identifier がロードされる
-			await _nav.Pop();
-			Assert.AreEqual(new MarkerScreenId("middle"), _nav.Current);
-			await _nav.Pop();
-			Assert.AreEqual(new MarkerScreenId("replaced"), _nav.Current);
-		}
-
-		[Test]
-		public async Task Edit_DuringTransition_IsDeferredUntilCompletion()
-		{
-			var idA = new MarkerScreenId("A");
-			var idB = new MarkerScreenId("B");
-			await _nav.Push(idA);
-			await _nav.Push(idB);
-
-			// OnBeforeEnter でブロックする画面を Push して「遷移中」を作る。
-			// bookkeeping は Enter hook の前に済むので、この時点で G は既に履歴に積まれている。
-			var gate = new GatedPresenter();
-			var idG = new ControllableScreenId(new InstantHandle(), () => gate);
-			var pushG = _nav.Push(idG); // await しない
-			await gate.Started;
-
-			Assert.IsTrue(_nav.IsTransitioning);
-			Assert.AreEqual(3, _nav.History.Count);
-
-			// 遷移中の Edit は index 競合を避けるため遅延される。
-			_nav.History.Edit(e => e.RemoveAt(0));
-			Assert.AreEqual(3, _nav.History.Count, "遷移中の Edit は即時適用されない");
-
-			gate.Release();
-			await pushG;
-
-			// チェーン完了後にまとめて適用される。
-			Assert.AreEqual(2, _nav.History.Count, "遷移完了後に Edit が適用される");
-			Assert.AreEqual(idB, _nav.History[0]);
 		}
 
 		[Test]
@@ -225,22 +134,6 @@ namespace Tests.ScreenFramework
 			// フォールト後も以後の編集は通常どおり成立する
 			_nav.History.Edit(e => e.Insert(0, new MarkerScreenId("inserted")));
 			Assert.AreEqual(2, _nav.History.Count);
-		}
-
-		[Test]
-		public async Task Edit_OnEmptyHistory_IsNotApplied()
-		{
-			// 履歴が空のときは編集は適用されない(Current が無い状態で行だけ増やすと
-			// top が dormant になり、遷移操作の前提が壊れるため)。例外にもならない。
-			_nav.History.Edit(e => e.Insert(0, new MarkerScreenId("ghost")));
-
-			Assert.AreEqual(0, _nav.History.Count, "空履歴への編集は適用されない");
-
-			// 適用されなかった編集が以後の操作に影響しない
-			var idA = new MarkerScreenId("A");
-			await _nav.Push(idA);
-			Assert.AreEqual(1, _nav.History.Count);
-			Assert.AreEqual(idA, _nav.Current);
 		}
 	}
 }

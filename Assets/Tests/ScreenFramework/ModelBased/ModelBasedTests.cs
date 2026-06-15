@@ -16,7 +16,7 @@ namespace Tests.ScreenFramework.ModelBased
 	///
 	/// Pinned_PreCanceled* の 2 件は、このハーネスが最初に検出した実バグ
 	/// 「事前キャンセル済みの Preempt 操作が進行中の遷移を巻き添えキャンセルする」
-	/// （ScreenNavigatorImpl.Run 冒頭の externalCt.ThrowIfCancellationRequested() 欠如、2026-06-13 修正）の番人。
+	/// （ScreenNavigatorImpl.Run 冒頭の externalCt.ThrowIfCancellationRequested() 欠如）の番人。
 	///
 	/// 注入フォールトの吸収ログ（Debug.LogException）は MbtLogFilter がハンドラ層で濾すため
 	/// テストを落とさない。"mbt: " を含まない予期しないエラーログは通常どおりテストを落とす。
@@ -38,7 +38,7 @@ namespace Tests.ScreenFramework.ModelBased
 		{
 			// ロード中の Push に、事前キャンセル済み ct の Preempt Push を重ねる。
 			// 契約: キャンセル済み操作は no-op（OCE で即決着し、in-flight 遷移は完走する）。
-			// Run 冒頭ガード欠如バグ（2026-06-13 修正）の番人。ガードを外すと in-flight 側が巻き添えで死に RED になる。
+			// Run 冒頭ガード欠如バグの番人。ガードを外すと in-flight 側が巻き添えで死に RED になる。
 			var sc = new MbtScenario();
 			sc.Ops.Add(new MbtOp
 			{
@@ -244,7 +244,6 @@ namespace Tests.ScreenFramework.ModelBased
 		public async Task Pinned_PreemptAtAfterLoad_LoserRollsBack_WinnerWins()
 		{
 			// OnAfterLoad 滞留中（rollback の最終境界）の遷移は生きた Preempt に正当に巻き戻される（C3）。
-			// Pinned_PreemptDuringLoad の「より遅い境界」版。
 			var sc = new MbtScenario();
 			sc.Ops.Add(new MbtOp
 			{
@@ -302,6 +301,56 @@ namespace Tests.ScreenFramework.ModelBased
 		public Task Sweep_Seeds_200_299() => Sweep(200, 300);
 
 		// ===========================================================================
+		// History.Edit（C7）
+		// ===========================================================================
+
+		[Test]
+		public async Task Pinned_EditRemoveLiveBelowRow_UnloadsAndStaysConsistent()
+		{
+			// KeepOnCover で下に生インスタンスを残し、Edit でその行を履歴から外す。
+			// 外れた生インスタンスは無音 Unload され（P6）、スタックは [S2] に保たれる（C7）。
+			var sc = new MbtScenario();
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 1, Label = "S1", Cache = ScreenCacheMode.KeepOnCover } });
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 2, Label = "S2" } });
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Edit, EditKind = MbtEditKind.RemoveByUid, TargetUid = 1 });
+			await AssertScenario(sc);
+		}
+
+		[Test]
+		public async Task Pinned_EditInsertDormant_ThenPopLoadsIt()
+		{
+			// 挿入行は dormant で入り、Pop で到達したときにロードされて Current になる（C7）。
+			var sc = new MbtScenario();
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 1, Label = "S1" } });
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Edit, EditKind = MbtEditKind.Insert, EditIndex = 0, Screen = new MbtScreenSpec { Uid = 2, Label = "S2" } });
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Pop });
+			await AssertScenario(sc);
+		}
+
+		[Test]
+		public async Task Pinned_EditOnEmptyHistory_IsNoop()
+		{
+			// 空履歴への編集は適用されない。以後の Push は通常どおり成立する（C7）。
+			var sc = new MbtScenario();
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Edit, EditKind = MbtEditKind.Insert, EditIndex = 0, Screen = new MbtScreenSpec { Uid = 1, Label = "S1" } });
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 2, Label = "S2" } });
+			await AssertScenario(sc);
+		}
+
+		[Test]
+		public async Task Pinned_EditDuringTransition_IsDeferredThenApplies()
+		{
+			// 遷移中（ロード滞留中）に発行された Edit はチェーン完了まで遅延され、その後に適用される（C7）。
+			// ロード滞留中はまだ S1 が top（下行に無い）ので、遅延されず即時適用されると RemoveByUid(S1) が
+			// 空振りして最終 [S1,S2] になる。正しくは S2 が S1 を覆ってから除去されて [S2]。
+			var sc = new MbtScenario();
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 1, Label = "S1", Cache = ScreenCacheMode.KeepOnCover } });
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 2, Label = "S2" }, Gate = MbtGateMode.HoldLoad });
+			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Edit, EditKind = MbtEditKind.RemoveByUid, TargetUid = 1, Overlap = true });
+			await AssertScenario(sc);
+		}
+
+		// ===========================================================================
 		// カバレッジ（網羅漏れ＝語彙/重みの穴を機械検出する。フレームワークは実行せずモデルだけ評価）
 		// ===========================================================================
 
@@ -317,6 +366,7 @@ namespace Tests.ScreenFramework.ModelBased
 			var gates = new HashSet<MbtGateMode>();
 			var tokens = new HashSet<MbtTokenMode>();
 			var screenFaults = new HashSet<MbtScreenFaults>();
+			var editKinds = new HashSet<MbtEditKind>();
 
 			for (var seed = 0; seed < seeds; seed++)
 			{
@@ -328,6 +378,7 @@ namespace Tests.ScreenFramework.ModelBased
 					faults.Add(op.Fault);
 					gates.Add(op.Gate);
 					tokens.Add(op.Token);
+					if (op.Kind == MbtOpKind.Edit) editKinds.Add(op.EditKind);
 					if (op.Screen != null)
 					{
 						foreach (MbtScreenFaults f in Enum.GetValues(typeof(MbtScreenFaults)))
@@ -349,6 +400,8 @@ namespace Tests.ScreenFramework.ModelBased
 				if (!tokens.Contains(tk)) missing.Add("token: " + tk);
 			foreach (MbtScreenFaults f in Enum.GetValues(typeof(MbtScreenFaults)))
 				if (f != MbtScreenFaults.None && !screenFaults.Contains(f)) missing.Add("screenFault: " + f);
+			foreach (MbtEditKind ek in Enum.GetValues(typeof(MbtEditKind)))
+				if (!editKinds.Contains(ek)) missing.Add("editKind: " + ek);
 
 			if (missing.Count > 0)
 				Assert.Fail(

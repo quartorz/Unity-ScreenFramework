@@ -521,7 +521,20 @@ namespace Tests.ScreenFramework.ModelBased
 				nav.OnTransitionEnd -= onEnd;
 				// Shutdown の DismissAll が残存スクリーンの注入フォールトを吸収ログするので、
 				// フィルタはその後（最後）に戻す。残存画面は同期ダブルなので畳み込みも同期に決着する。
-				ScreenNavigator.Shutdown().Forget();
+				// 後始末の Shutdown が例外/ハングで失敗するのも実装の不具合（壊れた状態で畳めない）なので
+				// Forget で握り潰さず観測する。Status で見るのはハング時にテストランナーごと止めないため。
+				try
+				{
+					var shutdown = ScreenNavigator.Shutdown();
+					if (shutdown.Status == UniTaskStatus.Pending)
+						report.Failures.Add("P0: teardown（Shutdown）が決着しない（後始末のハング）");
+					else
+						shutdown.GetAwaiter().GetResult();
+				}
+				catch (Exception e)
+				{
+					report.Failures.Add($"P0: teardown（Shutdown）が例外で失敗した {Describe(e)}");
+				}
 				DestroyContainer(pageC);
 				DestroyContainer(dialogC);
 				DestroyContainer(sysC);
@@ -621,9 +634,42 @@ namespace Tests.ScreenFramework.ModelBased
 				case MbtOpKind.DismissAll:
 					rt.Task = WrapPlain(nav.DismissAll(ct)).Preserve();
 					break;
+				case MbtOpKind.Edit:
+					// History.Edit は同期 void。遷移中なら実装側がチェーン完了まで遅延適用する。
+					// action の例外は即時パスのみここへ伝播する（遅延パスは実装が握り潰す）が、
+					// 生成する action は index を [0, 下行数] に丸めるため throw しない。
+					try
+					{
+						nav.History.Edit(BuildEditAction(world, plan));
+						rt.Task = UniTask.FromResult(new MbtObserved { Outcome = MbtOutcome.Success }).Preserve();
+					}
+					catch (Exception e)
+					{
+						rt.Task = UniTask.FromResult(new MbtObserved { Outcome = MbtOutcome.Faulted, Error = Describe(e) }).Preserve();
+					}
+					break;
 			}
 			return rt;
 		}
+
+		static Action<IScreenHistoryEditor> BuildEditAction(MbtWorld world, MbtOp plan)
+		{
+			switch (plan.EditKind)
+			{
+				case MbtEditKind.RemoveAt:
+					return e => { if (e.Stack.Count > 0) e.RemoveAt(Clamp(plan.EditIndex, 0, e.Stack.Count - 1)); };
+				case MbtEditKind.RemoveByUid:
+					return e => e.RemoveAll(id => id is IMbtId m && m.Spec.Uid == plan.TargetUid);
+				case MbtEditKind.Insert:
+					return e => e.Stack.Insert(Clamp(plan.EditIndex, 0, e.Stack.Count), new MbtScreenId(plan.Screen, world));
+				case MbtEditKind.ReplaceAt:
+					return e => { if (e.Stack.Count > 0) e.Stack[Clamp(plan.EditIndex, 0, e.Stack.Count - 1)] = new MbtScreenId(plan.Screen, world); };
+				default:
+					return e => e.Clear();
+			}
+		}
+
+		static int Clamp(int v, int lo, int hi) => v < lo ? lo : v > hi ? hi : v;
 
 		static async UniTask<MbtObserved> WrapEntry(UniTask<IScreenEntry> task, MbtWorld world, int uid)
 		{

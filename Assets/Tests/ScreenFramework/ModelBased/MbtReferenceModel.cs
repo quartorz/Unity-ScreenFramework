@@ -63,11 +63,21 @@ namespace Tests.ScreenFramework.ModelBased
 			for (var i = 0; i < sc.Ops.Count; i++)
 			{
 				var plan = sc.Ops[i];
-				if (!plan.Overlap) m.SettleAll(i);
-				m.Issue(i);
-				if (plan.Token == MbtTokenMode.CancelAfterIssue) m.CancelToken(i);
+				// 非 overlap = 直前までのチェーンを決着させてから発行する。チェーンが空になると
+				// （実装の Run.finally と同じく）遅延された Edit がまとめて適用される。
+				if (!plan.Overlap) { m.SettleAll(i); m.DrainDeferredEdits(); }
+				if (plan.Kind == MbtOpKind.Edit)
+				{
+					m.IssueEdit(i);
+				}
+				else
+				{
+					m.Issue(i);
+					if (plan.Token == MbtTokenMode.CancelAfterIssue) m.CancelToken(i);
+				}
 			}
 			m.SettleAll(sc.Ops.Count);
+			m.DrainDeferredEdits();
 			var preProbeActive = m.BuildActiveMap();
 			m.ApplyProbe(probe);
 			var e = m.BuildExpectation(probe);
@@ -109,6 +119,7 @@ namespace Tests.ScreenFramework.ModelBased
 			readonly List<MOp> _ops;
 			readonly List<string> _events = new();
 			readonly HashSet<string> _tags = new();
+			readonly List<MOp> _deferredEdits = new();
 			MOp _chainTail;
 
 			void Tag(string t) => _tags.Add(t);
@@ -202,6 +213,108 @@ namespace Tests.ScreenFramework.ModelBased
 				}
 				// Waiting: 自分の番で OCE（TryRun でタグ付け）。GatedCommit: 外部 ct は commit ゾーンでは無視（完走）。
 			}
+
+			// ===== History.Edit =====
+
+			bool ChainInFlight()
+			{
+				foreach (var o in _ops)
+					if (o.State is OpState.Waiting or OpState.GatedLoad or OpState.GatedAfterLoad or OpState.GatedCommit)
+						return true;
+				return false;
+			}
+
+			public void IssueEdit(int i)
+			{
+				var op = _ops[i];
+				// Edit は同期 void。チェーンには乗らず、呼び出し自体は常に成功扱い。
+				op.State = OpState.Settled;
+				op.ChainOutcome = MbtOutcome.Success;
+				if (ChainInFlight())
+				{
+					// 遷移中の Edit は index 競合を避けるためチェーン完了まで遅延される。
+					Tag(MbtCoverage.EditDeferred);
+					_deferredEdits.Add(op);
+				}
+				else
+				{
+					Tag(MbtCoverage.EditImmediate);
+					ApplyEdit(op);
+				}
+			}
+
+			/// <summary>チェーンが空なら遅延 Edit を発行順に適用する（実装の DrainDeferredEdits 相当）。</summary>
+			public void DrainDeferredEdits()
+			{
+				if (ChainInFlight() || _deferredEdits.Count == 0) return;
+				var pending = _deferredEdits.ToList();
+				_deferredEdits.Clear();
+				foreach (var op in pending) ApplyEdit(op);
+			}
+
+			void ApplyEdit(MOp op)
+			{
+				// 空履歴への編集は適用されない（Current が無い状態で行を増やさない契約）。
+				if (_stack.Count == 0) { Tag(MbtCoverage.EditEmptyNoop); return; }
+				var belowCount = _stack.Count - 1;   // 編集対象は Current より下の行 [0, belowCount-1]
+				switch (op.Plan.EditKind)
+				{
+					case MbtEditKind.RemoveAt:
+						if (belowCount == 0) return;
+						Tag(MbtCoverage.EditRemoveAt);
+						RemoveBelowRow(Clamp(op.Plan.EditIndex, 0, belowCount - 1));
+						break;
+					case MbtEditKind.RemoveByUid:
+						Tag(MbtCoverage.EditRemoveByUid);
+						for (var k = belowCount - 1; k >= 0; k--)
+							if (_stack[k].Spec.Uid == op.Plan.TargetUid) RemoveBelowRow(k);
+						break;
+					case MbtEditKind.Insert:
+						Tag(MbtCoverage.EditInsert);
+						_stack.Insert(Clamp(op.Plan.EditIndex, 0, belowCount), NewDormantRow(op.Plan.Screen));
+						break;
+					case MbtEditKind.ReplaceAt:
+						if (belowCount == 0) return;
+						Tag(MbtCoverage.EditReplaceAt);
+						ReplaceBelowRow(Clamp(op.Plan.EditIndex, 0, belowCount - 1), op.Plan.Screen);
+						break;
+					case MbtEditKind.Clear:
+						Tag(MbtCoverage.EditClear);
+						for (var k = belowCount - 1; k >= 0; k--) RemoveBelowRow(k);
+						break;
+				}
+			}
+
+			void RemoveBelowRow(int idx)
+			{
+				var row = _stack[idx];
+				if (row.Loaded)
+				{
+					// 履歴から外れた生インスタンスは Exit hook なしで Unload され、dialog awaiter は OCE になる。
+					Tag(MbtCoverage.EditRemovedLiveEntry);
+					SettleDialog(row, delivered: false);
+				}
+				row.Loaded = false;
+				row.EntryAlive = false;
+				_stack.RemoveAt(idx);
+			}
+
+			void ReplaceBelowRow(int idx, MbtScreenSpec newSpec)
+			{
+				var old = _stack[idx];
+				if (old.Loaded)
+				{
+					Tag(MbtCoverage.EditRemovedLiveEntry);
+					SettleDialog(old, delivered: false);
+				}
+				_stack[idx] = NewDormantRow(newSpec);
+			}
+
+			// Edit で挿入/差し替えされる行は dormant（インスタンスなし）で入り、IScreenEntry も持たない。
+			static MRow NewDormantRow(MbtScreenSpec spec)
+				=> new() { Spec = spec, Loaded = false, Suspended = false, EntryAlive = false };
+
+			static int Clamp(int v, int lo, int hi) => v < lo ? lo : v > hi ? hi : v;
 
 			/// <summary>発行済み op のゲートを op 順に解放する（実行系の解放ループと同じ順序）。</summary>
 			public void SettleAll(int issuedCount)
@@ -570,8 +683,9 @@ namespace Tests.ScreenFramework.ModelBased
 
 			bool OwnsAtIssue(int uid)
 			{
-				// entry 捕捉 = その push 系 op が成立済み（成立前に発行された CloseAt は対象を掴めない）
-				var pushOp = _ops.FirstOrDefault(o => o.Plan.Screen != null && o.Plan.Screen.Uid == uid);
+				// entry 捕捉 = その push 系 op が成立済み（成立前に発行された CloseAt は対象を掴めない）。
+				// Edit の Insert/ReplaceAt も Screen を持つが IScreenEntry は返さないので push 系のみに絞る。
+				var pushOp = _ops.FirstOrDefault(o => o.Plan.IsPushLike && o.Plan.Screen != null && o.Plan.Screen.Uid == uid);
 				if (pushOp == null || pushOp.State != OpState.Settled || pushOp.ChainOutcome != MbtOutcome.Success) return false;
 				if (pushOp.Plan.Kind == MbtOpKind.PushAndAwait) return false;
 				return FindAliveEntry(uid) >= 0;

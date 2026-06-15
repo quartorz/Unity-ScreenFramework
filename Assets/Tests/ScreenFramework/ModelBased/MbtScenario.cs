@@ -22,6 +22,23 @@ namespace Tests.ScreenFramework.ModelBased
 		/// <summary>Push 系操作が返した IScreenEntry 経由の Close。対象が top なら top close、中間なら silent close。</summary>
 		CloseAt,
 		DismissAll,
+		/// <summary>History.Edit。Current より下の行だけを無音編集する（top は維持）。遷移中に発行すると遅延適用される。</summary>
+		Edit,
+	}
+
+	/// <summary>Edit op が適用する編集プリミティブ（Current より下の行に対して）。</summary>
+	public enum MbtEditKind
+	{
+		/// <summary>下行リストの index 行を除去（生インスタンスがあれば無音 Unload）。</summary>
+		RemoveAt,
+		/// <summary>下行リストから TargetUid に一致する行を全除去（RemoveAll 経由）。</summary>
+		RemoveByUid,
+		/// <summary>下行リストの index に dormant 行を挿入（Pop で到達時にロード）。</summary>
+		Insert,
+		/// <summary>下行リストの index を別 Identifier へ差し替え（元の生インスタンスは破棄）。</summary>
+		ReplaceAt,
+		/// <summary>下行を全消去（top のみ残す）。</summary>
+		Clear,
 	}
 
 	public enum MbtTokenMode
@@ -118,10 +135,14 @@ namespace Tests.ScreenFramework.ModelBased
 		public MbtOpFault Fault;
 		/// <summary>true: 直前までの操作群の決着を待たずに発行する（in-flight への重ね打ち）。</summary>
 		public bool Overlap;
-		/// <summary>Push 系のみ。操作ごとに固有の spec を持つ（uid で恒等）。</summary>
+		/// <summary>Push 系・Edit(Insert/ReplaceAt) は操作ごとに固有の spec を持つ（uid で恒等）。</summary>
 		public MbtScreenSpec Screen;
-		/// <summary>PopTo / CloseAt の対象画面 uid。-1 は「見つからない」ケース。</summary>
+		/// <summary>PopTo / CloseAt / Edit(RemoveByUid) の対象画面 uid。-1 は「見つからない」ケース。</summary>
 		public int TargetUid = -1;
+		/// <summary>Edit op の編集プリミティブ。</summary>
+		public MbtEditKind EditKind;
+		/// <summary>Edit(RemoveAt/Insert/ReplaceAt) の下行リスト index（実行時に [0, 下行数] へ丸める）。</summary>
+		public int EditIndex;
 
 		public bool IsPushLike => Kind is MbtOpKind.Push or MbtOpKind.PushAndAwait or MbtOpKind.Replace or MbtOpKind.Change or MbtOpKind.Reset;
 
@@ -136,6 +157,12 @@ namespace Tests.ScreenFramework.ModelBased
 		{
 			var sb = new StringBuilder();
 			sb.Append('[').Append(index).Append("] ").Append(Kind);
+			if (Kind == MbtOpKind.Edit)
+			{
+				sb.Append(':').Append(EditKind);
+				if (EditKind is MbtEditKind.RemoveAt or MbtEditKind.Insert or MbtEditKind.ReplaceAt)
+					sb.Append("(idx=").Append(EditIndex).Append(')');
+			}
 			if (Screen != null) sb.Append('(').Append(Screen.Describe()).Append(')');
 			if (TargetUid >= 0) sb.Append("(target=S").Append(TargetUid).Append(')');
 			sb.Append(" prio=").Append(Priority);
@@ -237,6 +264,25 @@ namespace Tests.ScreenFramework.ModelBased
 					if (op.Fault == MbtOpFault.OnAfterEnterThrows && op.Gate == MbtGateMode.HoldAfterEnter)
 						op.Gate = MbtGateMode.None;
 				}
+				else if (op.Kind == MbtOpKind.Edit)
+				{
+					// Edit は同期 void API（遷移チェーンに乗らない）。Token/Gate/Fault は無関係。
+					// in-flight 中に発行されたら遅延適用される（= Overlap が即時/遅延を決める）。
+					op.Token = MbtTokenMode.None;
+					op.EditKind = (MbtEditKind)rng.Next(5);
+					op.EditIndex = rng.Next(5);
+					if (op.EditKind is MbtEditKind.Insert or MbtEditKind.ReplaceAt)
+					{
+						var spec = new MbtScreenSpec { Uid = nextUid++ };
+						spec.Label = "S" + spec.Uid;
+						op.Screen = spec;
+						uidPool.Add(spec.Uid);   // 挿入/差し替え行は dormant で履歴に入るので PopTo の対象になり得る
+					}
+					else if (op.EditKind == MbtEditKind.RemoveByUid)
+					{
+						op.TargetUid = uidPool.Count > 0 && rng.Next(100) < 85 ? uidPool[rng.Next(uidPool.Count)] : -1;
+					}
+				}
 				else
 				{
 					if (op.Kind is MbtOpKind.PopTo or MbtOpKind.CloseAt)
@@ -258,15 +304,16 @@ namespace Tests.ScreenFramework.ModelBased
 
 		static MbtOpKind PickKind(Random rng) => rng.Next(100) switch
 		{
-			< 25 => MbtOpKind.Push,
-			< 37 => MbtOpKind.PushAndAwait,
-			< 52 => MbtOpKind.Pop,
-			< 62 => MbtOpKind.PopTo,
-			< 72 => MbtOpKind.Replace,
-			< 80 => MbtOpKind.Change,
-			< 86 => MbtOpKind.Reset,
-			< 94 => MbtOpKind.CloseAt,
-			_ => MbtOpKind.DismissAll,
+			< 23 => MbtOpKind.Push,
+			< 34 => MbtOpKind.PushAndAwait,
+			< 48 => MbtOpKind.Pop,
+			< 58 => MbtOpKind.PopTo,
+			< 67 => MbtOpKind.Replace,
+			< 74 => MbtOpKind.Change,
+			< 80 => MbtOpKind.Reset,
+			< 88 => MbtOpKind.CloseAt,
+			< 93 => MbtOpKind.DismissAll,
+			_ => MbtOpKind.Edit,
 		};
 
 		static MbtOpFault PickPushFault(Random rng) => rng.Next(8) switch

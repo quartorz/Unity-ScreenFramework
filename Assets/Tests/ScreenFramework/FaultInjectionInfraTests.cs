@@ -46,7 +46,7 @@ namespace Tests.ScreenFramework
 		public async Task EffectMatchedButEffectRootMissing_WarnsAndSkips_TransitionContinues()
 		{
 			LogAssert.Expect(LogType.Warning, new Regex("EffectHost is null"));
-			SetupNavigatorWithPageRegistry(new StubMatchingEffectRegistry(NewAssetRef()));   // EffectRoot は意図的に未設定
+			SetupNavigatorWithPageRegistry(new StubMatchingEffectRegistry(NewAssetRef()));   // EffectHost は意図的に未設定
 
 			var id = new MarkerScreenId("A");
 			await ScreenNavigator.Page.Push(id);
@@ -58,14 +58,14 @@ namespace Tests.ScreenFramework
 		[Test]
 		public async Task EffectPrefabLoadFails_IsAbsorbed_AndTransitionContinues()
 		{
-			// 形式上は有効だが実在しない GUID の AssetReference を EffectRoot 付きでマッチさせ、
+			// 形式上は有効だが実在しない GUID の AssetReference を EffectHost 付きでマッチさせ、
 			// prefab の Load/Instantiate 失敗が吸収されることを見る。
 			// Addressables 自体が出すエラーログは本数・文言が環境依存なので個別 Expect せず一括で無視する。
-			var effectRoot = new GameObject("EffectRoot");
+			var effectHost = new GameObject("EffectHost").AddComponent<EffectHost>();
 			LogAssert.ignoreFailingMessages = true;
 			try
 			{
-				SetupNavigatorWithPageRegistry(new StubMatchingEffectRegistry(NewAssetRef()), effectRoot.transform);
+				SetupNavigatorWithPageRegistry(new StubMatchingEffectRegistry(NewAssetRef()), effectHost);
 
 				var id = new MarkerScreenId("A");
 				await ScreenNavigator.Page.Push(id);
@@ -76,7 +76,7 @@ namespace Tests.ScreenFramework
 			finally
 			{
 				LogAssert.ignoreFailingMessages = false;
-				UnityEngine.Object.DestroyImmediate(effectRoot);
+				UnityEngine.Object.DestroyImmediate(effectHost.gameObject);
 			}
 		}
 

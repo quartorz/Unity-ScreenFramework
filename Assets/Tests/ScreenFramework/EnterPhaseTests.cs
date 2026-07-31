@@ -44,9 +44,9 @@ namespace Tests.ScreenFramework
 
 			await ScreenNavigator.Page.Push(id);
 
-			Assert.AreSame(id, presenter.CurrentAtAfterEnter,
+			Assert.AreSame(id, presenter.CurrentAtAfterShow,
 				"OnAfterShow 時点で Current が自分になっている");
-			Assert.IsTrue(presenter.FoundSelfAtAfterEnter,
+			Assert.IsTrue(presenter.FoundSelfAtAfterShow,
 				"OnAfterShow 時点で FindEntry から自分が見える（孤児にならない）");
 		}
 
@@ -61,19 +61,19 @@ namespace Tests.ScreenFramework
 				Configure = w => w.Write(new PayloadData { V = "hello" }),
 			});
 
-			Assert.AreEqual("hello", presenter.AfterEnterValue,
+			Assert.AreEqual("hello", presenter.AfterShowValue,
 				"OnAfterShow でも push payload が読める");
 		}
 
 		sealed class SelfObservingPresenter : IScreenPresenter
 		{
-			public IScreenIdentifier CurrentAtAfterEnter;
-			public bool FoundSelfAtAfterEnter;
+			public IScreenIdentifier CurrentAtAfterShow;
+			public bool FoundSelfAtAfterShow;
 
 			UniTask IScreenPresenter.OnAfterShow(INavigationDataReader r, ITransitionContext ctx, CancellationToken c)
 			{
-				CurrentAtAfterEnter = ScreenNavigator.Page.Current;
-				FoundSelfAtAfterEnter = ScreenNavigator.Page.FindEntry<SelfObservingPresenter>() != null;
+				CurrentAtAfterShow = ScreenNavigator.Page.Current;
+				FoundSelfAtAfterShow = ScreenNavigator.Page.FindEntry<SelfObservingPresenter>() != null;
 				return UniTask.CompletedTask;
 			}
 		}
@@ -82,11 +82,11 @@ namespace Tests.ScreenFramework
 
 		sealed class PayloadCapturePresenter : IScreenPresenter
 		{
-			public string AfterEnterValue = "<none>";
+			public string AfterShowValue = "<none>";
 
 			UniTask IScreenPresenter.OnAfterShow(INavigationDataReader r, ITransitionContext ctx, CancellationToken c)
 			{
-				if (r != null && r.TryRead<PayloadData>(out var d)) AfterEnterValue = d.V;
+				if (r != null && r.TryRead<PayloadData>(out var d)) AfterShowValue = d.V;
 				return UniTask.CompletedTask;
 			}
 		}

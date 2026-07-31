@@ -72,7 +72,7 @@ namespace Tests.ScreenFramework.ModelBased
 	/// in-flight 遷移を await 境界で停止させる位置。割り込み（preempt）/ 外部キャンセルは
 	/// 「進行中の 1 本がどの境界で滞留しているか」でしか着弾できない（Run は遷移を直列化する）ため、
 	/// 停止位置 = 撹乱の着弾点。rollback ゾーン（HoldLoad / HoldAfterLoad）の停止中に来た撹乱は OCE で
-	/// 巻き戻し、commit ゾーン（HoldCommit / HoldAfterEnter）の停止中に来た外部キャンセルは無視されて完走する。
+	/// 巻き戻し、commit ゾーン（HoldCommit / HoldAfterShow）の停止中に来た外部キャンセルは無視されて完走する。
 	/// </summary>
 	public enum MbtGateMode
 	{
@@ -86,7 +86,7 @@ namespace Tests.ScreenFramework.ModelBased
 		/// <summary>OnBeforeShow を外部解放まで停止する（commit ゾーンの先頭境界）。</summary>
 		HoldCommit,
 		/// <summary>OnAfterShow を外部解放まで停止する（commit ゾーンの最終境界）。</summary>
-		HoldAfterEnter,
+		HoldAfterShow,
 		/// <summary>
 		/// Pop の退場 hook（OnBeforeHide）で停止する。退場は safeCt=None で走る commit ゾーンなので、
 		/// 停止中の外部キャンセルは無視され、preempt も巻き戻せず完走を待つ。入場側ゲート（HoldCommit）とは
@@ -121,8 +121,9 @@ namespace Tests.ScreenFramework.ModelBased
 		BeforeHideThrows = 1,
 		UnloadThrows = 2,
 		AfterUnloadThrows = 4,
-		/// <summary>復元ロード（2 回目以降の handle.Load）を常に失敗させる。dormant top 契約（C10）の入口。</summary>
+		/// <summary>復元ロード（2 回目以降の handle.Load）を常に失敗させる。Pop ではキャンセルされ top は退場しない。CloseTop では退場後に失敗し dormant top が残る（C10）。</summary>
 		RestoreLoadFails = 8,
+		/// <summary>OnResume（KeepOnCover から復帰する側）で投げる。Pop がキャンセルされ top は退場しない。</summary>
 		ResumeThrows = 16,
 		/// <summary>OnAfterHide（退場の commit ゾーン後段）で投げる。吸収されて退場は完遂する契約。</summary>
 		AfterHideThrows = 32,
@@ -282,7 +283,7 @@ namespace Tests.ScreenFramework.ModelBased
 						< 30 => MbtGateMode.HoldLoad,
 						< 44 => MbtGateMode.HoldAfterLoad,
 						< 57 => MbtGateMode.HoldCommit,
-						< 65 => MbtGateMode.HoldAfterEnter,
+						< 65 => MbtGateMode.HoldAfterShow,
 						_ => MbtGateMode.None,
 					};
 					if (rng.Next(100) < 25) op.Fault = PickPushFault(rng);
@@ -292,12 +293,12 @@ namespace Tests.ScreenFramework.ModelBased
 						op.Gate = MbtGateMode.None;
 					// OnAfterLoad の例外はその hook で発火するので、それ以降に停止する gate には到達しない
 					if (op.Fault == MbtOpFault.OnAfterLoadThrows
-						&& op.Gate is MbtGateMode.HoldAfterLoad or MbtGateMode.HoldCommit or MbtGateMode.HoldAfterEnter)
+						&& op.Gate is MbtGateMode.HoldAfterLoad or MbtGateMode.HoldCommit or MbtGateMode.HoldAfterShow)
 						op.Gate = MbtGateMode.None;
 					// 同一 hook に gate と fault を同居させない（停止する hook 自身が throw すると停止できない）
 					if (op.Fault == MbtOpFault.EnterHookThrows && op.Gate == MbtGateMode.HoldCommit)
 						op.Gate = MbtGateMode.None;
-					if (op.Fault == MbtOpFault.OnAfterShowThrows && op.Gate == MbtGateMode.HoldAfterEnter)
+					if (op.Fault == MbtOpFault.OnAfterShowThrows && op.Gate == MbtGateMode.HoldAfterShow)
 						op.Gate = MbtGateMode.None;
 				}
 				else if (op.Kind == MbtOpKind.Edit)

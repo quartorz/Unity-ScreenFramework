@@ -39,6 +39,8 @@ namespace Tests.ScreenFramework.ModelBased
 		public Dictionary<int, bool> FinalAliveByUid = new();
 		/// <summary>回復プローブを積む直前の、スタック各画面の表示状態（uid → active）。最上段かつ Loaded のみ active。</summary>
 		public Dictionary<int, bool> PreProbeActiveByUid = new();
+		/// <summary>回復プローブを積む直前の、loaded 各画面の期待 Sorting Order（uid → order = スタック index * step）。</summary>
+		public Dictionary<int, int> PreProbeSortingOrderByUid = new();
 		/// <summary>回復プローブを積む直前の、敷かれている modal blocker GameObject の期待個数（Stack モードのみ非 0）。</summary>
 		public int PreProbeBlockerCount;
 		/// <summary>このシナリオが到達した「撹乱×ゾーン」分岐のタグ（カバレッジ計測用。docs の網羅表に対応）。</summary>
@@ -84,6 +86,7 @@ namespace Tests.ScreenFramework.ModelBased
 			m.SettleAll(m.IssuedCount);
 			m.DrainDeferredEdits();
 			var preProbeActive = m.BuildActiveMap();
+			var preProbeOrders = m.BuildSortingOrderMap();
 			var preProbeBlockers = m.CountBlockers();
 			MbtExpectation e;
 			if (sc.ShutdownAtEnd)
@@ -97,6 +100,7 @@ namespace Tests.ScreenFramework.ModelBased
 				e = m.BuildExpectation(probe);
 			}
 			e.PreProbeActiveByUid = preProbeActive;
+			e.PreProbeSortingOrderByUid = preProbeOrders;
 			e.PreProbeBlockerCount = preProbeBlockers;
 			return e;
 		}
@@ -234,8 +238,8 @@ namespace Tests.ScreenFramework.ModelBased
 				}
 				else if (op.State == OpState.GatedCommit)
 				{
-					Tag(op.Plan.Gate == MbtGateMode.HoldAfterEnter
-						? MbtCoverage.CancelGatedAfterEnterIgnored
+					Tag(op.Plan.Gate == MbtGateMode.HoldAfterShow
+						? MbtCoverage.CancelGatedAfterShowIgnored
 						: MbtCoverage.CancelGatedCommitIgnored);
 				}
 				else if (op.State == OpState.GatedExit)
@@ -378,8 +382,8 @@ namespace Tests.ScreenFramework.ModelBased
 					else if (op.State == OpState.GatedAfterLoad) { Tag(MbtCoverage.GateAfterLoadReleased); ResumeAfterLoadGate(op); }
 					else if (op.State == OpState.GatedCommit)
 					{
-						Tag(op.Plan.Gate == MbtGateMode.HoldAfterEnter
-							? MbtCoverage.GateAfterEnterReleased : MbtCoverage.GateCommitReleased);
+						Tag(op.Plan.Gate == MbtGateMode.HoldAfterShow
+							? MbtCoverage.GateAfterShowReleased : MbtCoverage.GateCommitReleased);
 						FinishCommit(op);
 					}
 					else if (op.State == OpState.GatedExit)
@@ -400,6 +404,21 @@ namespace Tests.ScreenFramework.ModelBased
 				for (var i = 0; i < _stack.Count; i++)
 					// Cover は最上段の loaded だけ active。Stack は覆っても残るので loaded 行は全て active。
 					map[_stack[i].Spec.Uid] = _stack[i].Loaded && (_isStack || i == _stack.Count - 1);
+				return map;
+			}
+
+			/// <summary>
+			/// 各 loaded 画面の期待 Sorting Order。order = baseOrder + (スタック index) * orderStep。
+			/// 定数は MBT の <c>NewContainer</c> が生成する既定 ScreenContainer（baseOrder=0 / orderStep=10）に対応する。
+			/// dormant 行も index を消費する（実装の _live と同じく raw index で算出）。
+			/// </summary>
+			public Dictionary<int, int> BuildSortingOrderMap()
+			{
+				const int baseOrder = 0;
+				const int step = 10;
+				var map = new Dictionary<int, int>();
+				for (var i = 0; i < _stack.Count; i++)
+					if (_stack[i].Loaded) map[_stack[i].Spec.Uid] = baseOrder + i * step;
 				return map;
 			}
 
@@ -488,7 +507,7 @@ namespace Tests.ScreenFramework.ModelBased
 							Tag(MbtCoverage.CommitHookEnterAbsorbed);
 							break;
 						case MbtOpFault.OnAfterShowThrows:
-							Tag(MbtCoverage.CommitHookAfterEnterAbsorbed);
+							Tag(MbtCoverage.CommitHookAfterShowAbsorbed);
 							break;
 					}
 					if (plan.Gate == MbtGateMode.HoldInitialize && !op.GateReleased)
@@ -544,7 +563,7 @@ namespace Tests.ScreenFramework.ModelBased
 				}
 				ApplyPushEffect(op);   // bookkeeping は Enter hook より前に確定する
 				// OnBeforeShow / OnAfterShow での停止はどちらも commit ゾーン（外部キャンセルは無視され完走）。
-				if ((plan.Gate is MbtGateMode.HoldCommit or MbtGateMode.HoldAfterEnter) && !op.GateReleased)
+				if ((plan.Gate is MbtGateMode.HoldCommit or MbtGateMode.HoldAfterShow) && !op.GateReleased)
 				{
 					op.State = OpState.GatedCommit;
 					return;
@@ -610,7 +629,7 @@ namespace Tests.ScreenFramework.ModelBased
 				switch (plan.Kind)
 				{
 					case MbtOpKind.Pop:
-						return PopTopAndRestore();
+						return PopTopAndRestore(plan);
 					case MbtOpKind.PopTo:
 					{
 						var idx = FindTopmost(plan.TargetUid);
@@ -622,12 +641,12 @@ namespace Tests.ScreenFramework.ModelBased
 							_stack.RemoveAt(i);
 						}
 						// 最終段は通常 Pop 扱い（top の awaiter には結果配送）
-						return PopTopAndRestore();
+						return PopTopAndRestore(plan);
 					}
 					case MbtOpKind.CloseAt:
 					{
 						var idx = FindAliveEntry(plan.TargetUid);
-						if (idx == _stack.Count - 1) return PopTopAndRestore();
+						if (idx == _stack.Count - 1) return PopTopAndRestore(plan);
 						// 中間 Close は silent だが正常な閉じ方（退場 hook 経由）なので結果は配送される
 						Tag(MbtCoverage.CloseMiddle);
 						var row = _stack[idx];
@@ -646,9 +665,27 @@ namespace Tests.ScreenFramework.ModelBased
 				return MbtOutcome.Success;
 			}
 
-			MbtOutcome PopTopAndRestore()
+			MbtOutcome PopTopAndRestore(MbtOp plan)
 			{
 				var top = _stack[^1];
+
+				// ロールバック可能ゾーン: Pop/PopTo は戻り先の復帰処理を先に試みる。
+				// 失敗時は Pop がキャンセルされ top は退場しない（CloseAt(top) は rollback できないため対象外）。
+				var canCancelPop = plan.Kind == MbtOpKind.Pop || plan.Kind == MbtOpKind.PopTo;
+				if (canCancelPop && _stack.Count >= 2)
+				{
+					var below = _stack[_stack.Count - 2];
+					if (!below.Loaded && (below.Spec.Faults & MbtScreenFaults.RestoreLoadFails) != 0)
+					{
+						Tag(MbtCoverage.RestoreFaultDormantTop);
+						return MbtOutcome.Faulted;
+					}
+					if (below.Suspended && (below.Spec.Faults & MbtScreenFaults.ResumeThrows) != 0)
+					{
+						Tag(MbtCoverage.ResumeFaultCancelsPop);
+						return MbtOutcome.Faulted;
+					}
+				}
 				SettleDialog(top, delivered: true);
 				top.Loaded = false;
 				top.Suspended = false;
@@ -662,7 +699,7 @@ namespace Tests.ScreenFramework.ModelBased
 				var below = _stack[^1];
 				if (!below.Loaded)
 				{
-					// 復元ロード（完走必須ゾーン）。失敗は伝播するが履歴は巻き戻さず dormant top が残る（C10）。
+					// 復元ロード（Pop キャンセル後に回収される経路など）。
 					if ((below.Spec.Faults & MbtScreenFaults.RestoreLoadFails) != 0)
 					{
 						Tag(MbtCoverage.RestoreFaultDormantTop);
@@ -675,7 +712,7 @@ namespace Tests.ScreenFramework.ModelBased
 					SetBlocker(below, _stack.Count >= 2);   // 復元画面も push 時と同じ規則で blocker 再構成（下に行があれば）
 					return MbtOutcome.Success;
 				}
-				if (below.Suspended) { Tag(MbtCoverage.ResumeSuspended); below.Suspended = false; }   // OnResume の例外は吸収される
+				if (below.Suspended) { Tag(MbtCoverage.ResumeSuspended); below.Suspended = false; }
 				return MbtOutcome.Success;
 			}
 

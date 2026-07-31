@@ -15,7 +15,7 @@ namespace Tests.ScreenFramework.ModelBased
 		public const string CancelGatedAfterLoad = "cancel.gatedAfterLoad.oce";
 		// commit ゾーンの停止中に来た外部キャンセルは無視されて完走する
 		public const string CancelGatedCommitIgnored = "cancel.gatedCommit.ignored";
-		public const string CancelGatedAfterEnterIgnored = "cancel.gatedAfterEnter.ignored";
+		public const string CancelGatedAfterShowIgnored = "cancel.gatedAfterShow.ignored";
 		// 退場 hook（Pop の OnBeforeHide）滞留中の外部キャンセルも commit ゾーンなので無視される
 		public const string CancelGatedExitIgnored = "cancel.gatedExit.ignored";
 		// 待機中（body 突入前）のキャンセルは自分の番で OCE
@@ -36,7 +36,7 @@ namespace Tests.ScreenFramework.ModelBased
 		public const string GateLoadReleased = "gate.load.released";
 		public const string GateAfterLoadReleased = "gate.afterLoad.released";
 		public const string GateCommitReleased = "gate.commit.released";
-		public const string GateAfterEnterReleased = "gate.afterEnter.released";
+		public const string GateAfterShowReleased = "gate.afterShow.released";
 		public const string GateExitReleased = "gate.exit.released";
 
 		// rollback フォールトはスタック無傷で伝播
@@ -49,7 +49,7 @@ namespace Tests.ScreenFramework.ModelBased
 
 		// commit ゾーンの hook 例外は吸収されて完走
 		public const string CommitHookEnterAbsorbed = "commit.hook.enter.absorbed";
-		public const string CommitHookAfterEnterAbsorbed = "commit.hook.afterEnter.absorbed";
+		public const string CommitHookAfterShowAbsorbed = "commit.hook.afterShow.absorbed";
 
 		// スタック意味論の分岐
 		public const string PopToMiddleDiscard = "popto.middleDiscard";
@@ -60,7 +60,8 @@ namespace Tests.ScreenFramework.ModelBased
 
 		// 復元/再開
 		public const string RestoreSuccess = "restore.success";
-		public const string RestoreFaultDormantTop = "restore.fault.dormantTop";
+		public const string RestoreFaultDormantTop = "restore.fault.dormantTop";   // Pop キャンセル（復元ロード失敗）
+		public const string ResumeFaultCancelsPop = "resume.fault.cancelsPop";   // Pop キャンセル（OnResume 失敗）
 		public const string ResumeSuspended = "resume.suspended";
 		public const string KeepOnCoverSuspended = "keepOnCover.suspended";
 
@@ -83,17 +84,17 @@ namespace Tests.ScreenFramework.ModelBased
 		/// <summary>網羅されるべきタグの全集合。Sweep_Coverage がスイープの union と突き合わせる。</summary>
 		public static readonly IReadOnlyList<string> All = new[]
 		{
-			CancelGatedInitialize, CancelGatedLoad, CancelGatedAfterLoad, CancelGatedCommitIgnored, CancelGatedAfterEnterIgnored,
+			CancelGatedInitialize, CancelGatedLoad, CancelGatedAfterLoad, CancelGatedCommitIgnored, CancelGatedAfterShowIgnored,
 			CancelGatedExitIgnored, CancelWaiting, PreCanceledNoop,
 			PreemptKillsWaiting, PreemptKillsGatedInitialize, PreemptKillsGatedLoad, PreemptKillsGatedAfterLoad,
 			PreemptSparesGatedCommit, PreemptSparesGatedExit,
-			GateInitializeReleased, GateLoadReleased, GateAfterLoadReleased, GateCommitReleased, GateAfterEnterReleased, GateExitReleased,
+			GateInitializeReleased, GateLoadReleased, GateAfterLoadReleased, GateCommitReleased, GateAfterShowReleased, GateExitReleased,
 			RollbackFaultConfigure, RollbackFaultInitialize, RollbackFaultBeforeLoad, RollbackFaultLoad,
 			RollbackFaultAfterLoad, RollbackFaultSpuriousOce,
-			CommitHookEnterAbsorbed, CommitHookAfterEnterAbsorbed,
+			CommitHookEnterAbsorbed, CommitHookAfterShowAbsorbed,
 			PopToMiddleDiscard, CloseMiddle, DismissAllNonEmpty, DialogDelivered, DialogCanceled,
 			StackCoverNoExit, StackBlockerCreated, ShutdownFold,
-			RestoreSuccess, RestoreFaultDormantTop, ResumeSuspended, KeepOnCoverSuspended,
+			RestoreSuccess, RestoreFaultDormantTop, ResumeFaultCancelsPop, ResumeSuspended, KeepOnCoverSuspended,
 			EditImmediate, EditDeferred, EditEmptyNoop, EditRemoveAt, EditRemoveByUid,
 			EditInsert, EditReplaceAt, EditClear, EditRemovedLiveEntry,
 		};

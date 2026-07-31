@@ -144,9 +144,9 @@ namespace Tests.ScreenFramework.ModelBased
 		}
 
 		[Test]
-		public async Task Pinned_RestoreLoadFault_LeavesDormantTop_AndNavigatorRecovers()
+		public async Task Pinned_RestoreLoadFault_CancelsPop_AndNavigatorRecovers()
 		{
-			// 復元ロード失敗は伝播するが履歴は維持され（dormant top）、以後の操作が成立する（C10 / C8）。
+			// 復元ロード失敗は伝播し Pop がキャンセルされる。top は退場せず残り、以後の操作が成立する（C10 / C8）。
 			var sc = new MbtScenario();
 			sc.Ops.Add(new MbtOp
 			{
@@ -175,7 +175,7 @@ namespace Tests.ScreenFramework.ModelBased
 		}
 
 		[Test]
-		public async Task Pinned_CommitZoneAfterEnterHook_IsAbsorbed_AndScreenIsTracked()
+		public async Task Pinned_CommitZoneAfterShowHook_IsAbsorbed_AndScreenIsTracked()
 		{
 			// OnAfterShow（commit ゾーン後段）の例外は吸収され、画面は孤児にならず追跡される（C1）。
 			// 旧 CommitZoneGuardTests.Push_OnAfterShowThrows の引退先。
@@ -262,7 +262,7 @@ namespace Tests.ScreenFramework.ModelBased
 		}
 
 		[Test]
-		public async Task Pinned_CancelAtAfterEnter_IsIgnored_AndPushCompletes()
+		public async Task Pinned_CancelAtAfterShow_IsIgnored_AndPushCompletes()
 		{
 			// commit ゾーンの最終境界（OnAfterShow 滞留中）の外部キャンセルは無視され、push は完走する（C2 の commit 側）。
 			// commit ゾーンが OnAfterShow まで届いていないと RED になる。
@@ -272,7 +272,7 @@ namespace Tests.ScreenFramework.ModelBased
 			{
 				Kind = MbtOpKind.Push,
 				Screen = new MbtScreenSpec { Uid = 2, Label = "S2" },
-				Gate = MbtGateMode.HoldAfterEnter,
+				Gate = MbtGateMode.HoldAfterShow,
 				Token = MbtTokenMode.CancelAfterIssue,
 			});
 			await AssertScenario(sc);

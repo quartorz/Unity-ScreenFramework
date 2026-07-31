@@ -530,6 +530,22 @@ namespace Tests.ScreenFramework.ModelBased
 						report.Failures.Add($"P7: S{kv.Key} の active={view.Active}（期待: {kv.Value}）");
 				}
 
+				// P11 描画順: プローブを積む前に、loaded 各画面の Canvas Sorting Order が
+				// 「スタック index * step」になっていること（reflow が _live のスタック順に振り直す契約）。
+				// プローブ Push 後は被さって order が変わるため、P7 と同じ pre-probe 時点で観測する。
+				foreach (var kv in expect.PreProbeSortingOrderByUid)
+				{
+					if (!world.ViewByUid.TryGetValue(kv.Key, out var view))
+					{
+						report.Failures.Add($"P11: S{kv.Key} は loaded のはずだが view が存在しない");
+						continue;
+					}
+					if (view.SortingOrder == int.MinValue)
+						report.Failures.Add($"P11: S{kv.Key} に Sorting Order が一度も適用されていない");
+					else if (view.SortingOrder != kv.Value)
+						report.Failures.Add($"P11: S{kv.Key} の sortingOrder={view.SortingOrder}（期待: {kv.Value}）");
+				}
+
 				// Shutdown は再 Initialize 必須で静的参照を畳むため、回復プローブ（C8）は行わない（P1〜P6 は継続）。
 					if (!sc.ShutdownAtEnd)
 					{
@@ -674,7 +690,7 @@ namespace Tests.ScreenFramework.ModelBased
 				if (plan.Gate == MbtGateMode.HoldLoad) rt.LoadGate = new UniTaskCompletionSource<IScreenViewInstance>();
 				if (plan.Gate == MbtGateMode.HoldAfterLoad) rt.AfterLoadGate = new UniTaskCompletionSource();
 				if (plan.Gate == MbtGateMode.HoldCommit) rt.CommitGate = new UniTaskCompletionSource();
-				if (plan.Gate == MbtGateMode.HoldAfterEnter) rt.AfterShowGate = new UniTaskCompletionSource();
+				if (plan.Gate == MbtGateMode.HoldAfterShow) rt.AfterShowGate = new UniTaskCompletionSource();
 				world.OpBySpecUid[plan.Screen.Uid] = plan;
 				world.RuntimeBySpecUid[plan.Screen.Uid] = rt;
 			}

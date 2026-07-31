@@ -113,10 +113,10 @@ namespace Tests.ScreenFramework
 		UniTask IScreenPresenter.OnInitialize(CancellationToken c) => Step("Initialize");
 		UniTask IScreenPresenter.OnBeforeLoad(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("BeforeLoad");
 		UniTask IScreenPresenter.OnAfterLoad(IScreenViewInstance v, INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("AfterLoad");
-		UniTask IScreenPresenter.OnBeforeEnter(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("BeforeEnter");
-		UniTask IScreenPresenter.OnAfterEnter(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("AfterEnter");
-		UniTask IScreenPresenter.OnBeforeExit(INavigationDataWriter w, ITransitionContext x, CancellationToken c) => Step("BeforeExit");
-		UniTask IScreenPresenter.OnAfterExit(INavigationDataWriter w, ITransitionContext x, CancellationToken c) => Step("AfterExit");
+		UniTask IScreenPresenter.OnBeforeShow(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("BeforeEnter");
+		UniTask IScreenPresenter.OnAfterShow(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("AfterEnter");
+		UniTask IScreenPresenter.OnBeforeHide(INavigationDataWriter w, ITransitionContext x, CancellationToken c) => Step("BeforeHide");
+		UniTask IScreenPresenter.OnAfterHide(INavigationDataWriter w, ITransitionContext x, CancellationToken c) => Step("AfterHide");
 		UniTask IScreenPresenter.OnSuspend(CancellationToken c) => Step("Suspend");
 		UniTask IScreenPresenter.OnResume(CancellationToken c) => Step("Resume");
 		UniTask IScreenPresenter.OnAfterUnload(INavigationDataWriter w, CancellationToken c) => Step("AfterUnload");
@@ -136,17 +136,17 @@ namespace Tests.ScreenFramework
 		UniTask IScreenPresenter.OnInitialize(CancellationToken c) => Step("Initialize");
 		UniTask IScreenPresenter.OnBeforeLoad(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("BeforeLoad");
 		UniTask IScreenPresenter.OnAfterLoad(IScreenViewInstance v, INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("AfterLoad");
-		UniTask IScreenPresenter.OnBeforeEnter(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("BeforeEnter");
-		UniTask IScreenPresenter.OnAfterEnter(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("AfterEnter");
-		UniTask IScreenPresenter.OnBeforeExit(INavigationDataWriter w, ITransitionContext x, CancellationToken c) => Step("BeforeExit");
-		UniTask IScreenPresenter.OnAfterExit(INavigationDataWriter w, ITransitionContext x, CancellationToken c) => Step("AfterExit");
+		UniTask IScreenPresenter.OnBeforeShow(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("BeforeEnter");
+		UniTask IScreenPresenter.OnAfterShow(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("AfterEnter");
+		UniTask IScreenPresenter.OnBeforeHide(INavigationDataWriter w, ITransitionContext x, CancellationToken c) => Step("BeforeHide");
+		UniTask IScreenPresenter.OnAfterHide(INavigationDataWriter w, ITransitionContext x, CancellationToken c) => Step("AfterHide");
 		UniTask IScreenPresenter.OnSuspend(CancellationToken c) => Step("Suspend");
 		UniTask IScreenPresenter.OnResume(CancellationToken c) => Step("Resume");
 		UniTask IScreenPresenter.OnAfterUnload(INavigationDataWriter w, CancellationToken c) => Step("AfterUnload");
 	}
 
 	/// <summary>
-	/// OnBeforeExit で Started を立ててから Release まで待機する presenter。
+	/// OnBeforeHide で Started を立ててから Release まで待機する presenter。
 	/// Pop / DismissAll の退場フェーズ(完走必須ゾーン)の途中に割り込み・キャンセルをぶつけるために使う。
 	/// オプションで OnAfterUnload を throw させ、teardown フォールトを重ねられる。
 	/// </summary>
@@ -159,7 +159,7 @@ namespace Tests.ScreenFramework
 		public void Release() => _release.TrySetResult();
 		public GatedExitPresenter(bool failAfterUnload = false) => _failAfterUnload = failAfterUnload;
 
-		UniTask IScreenPresenter.OnBeforeExit(INavigationDataWriter w, ITransitionContext x, CancellationToken c)
+		UniTask IScreenPresenter.OnBeforeHide(INavigationDataWriter w, ITransitionContext x, CancellationToken c)
 		{
 			_started.TrySetResult();
 			return _release.Task;
@@ -196,26 +196,26 @@ namespace Tests.ScreenFramework
 		}
 	}
 
-	/// <summary>OnAfterEnter で Redirect を発行した直後に throw する presenter。</summary>
+	/// <summary>OnAfterShow で Redirect を発行した直後に throw する presenter。</summary>
 	internal sealed class RedirectThenThrowPresenter : IScreenPresenter
 	{
 		readonly IScreenIdentifier _next;
 		public RedirectThenThrowPresenter(IScreenIdentifier next) => _next = next;
 
-		UniTask IScreenPresenter.OnAfterEnter(INavigationDataReader r, ITransitionContext x, CancellationToken c)
+		UniTask IScreenPresenter.OnAfterShow(INavigationDataReader r, ITransitionContext x, CancellationToken c)
 		{
 			ScreenNavigator.Page.Push(_next, new PushOptions { InterruptPriority = InterruptPriority.Queue }).Redirect();
 			throw new InvalidOperationException("fault injected at AfterEnter (redirect origin)");
 		}
 	}
 
-	/// <summary>OnAfterEnter で指定先へ Redirect を発行する presenter(自分は正常完了する)。</summary>
+	/// <summary>OnAfterShow で指定先へ Redirect を発行する presenter(自分は正常完了する)。</summary>
 	internal sealed class RedirectingPresenter : IScreenPresenter
 	{
 		readonly IScreenIdentifier _next;
 		public RedirectingPresenter(IScreenIdentifier next) => _next = next;
 
-		UniTask IScreenPresenter.OnAfterEnter(INavigationDataReader r, ITransitionContext x, CancellationToken c)
+		UniTask IScreenPresenter.OnAfterShow(INavigationDataReader r, ITransitionContext x, CancellationToken c)
 		{
 			ScreenNavigator.Page.Push(_next, new PushOptions { InterruptPriority = InterruptPriority.Queue }).Redirect();
 			return UniTask.CompletedTask;
@@ -306,12 +306,12 @@ namespace Tests.ScreenFramework
 	}
 
 	/// <summary>
-	/// OnBeforeExit(完走必須ゾーン)で NeverPublishedStage を短い timeout 付きで待つ presenter。
+	/// OnBeforeHide(完走必須ゾーン)で NeverPublishedStage を短い timeout 付きで待つ presenter。
 	/// commit ゾーンの stage 待ち timeout が吸収されて遷移が完走することの注入用。
 	/// </summary>
 	internal sealed class StageWaitExitPresenter : IScreenPresenter
 	{
-		UniTask IScreenPresenter.OnBeforeExit(INavigationDataWriter w, ITransitionContext x, CancellationToken c)
+		UniTask IScreenPresenter.OnBeforeHide(INavigationDataWriter w, ITransitionContext x, CancellationToken c)
 			=> x.WaitForStage<NeverPublishedStage>(c, TimeSpan.FromMilliseconds(50));
 	}
 }

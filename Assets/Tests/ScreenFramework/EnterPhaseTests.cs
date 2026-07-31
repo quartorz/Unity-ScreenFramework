@@ -9,9 +9,9 @@ namespace Tests.ScreenFramework
 	using static ScreenTestFixtures;
 
 	/// <summary>
-	/// 画面が Enter フェーズ（OnBeforeEnter / OnAfterEnter）で観測する状態の検証。
+	/// 画面が Enter フェーズ（OnBeforeShow / OnAfterShow）で観測する状態の検証。
 	/// bookkeeping は Enter hook より前に済むので hook 内で自分が最上段として見え、
-	/// push payload は OnBeforeEnter / OnAfterEnter の両方に渡る（後者だけ空、という非対称はない）。
+	/// push payload は OnBeforeShow / OnAfterShow の両方に渡る（後者だけ空、という非対称はない）。
 	/// </summary>
 	public sealed class EnterPhaseTests
 	{
@@ -37,7 +37,7 @@ namespace Tests.ScreenFramework
 		}
 
 		[Test]
-		public async Task OnAfterEnter_SeesItselfAsCurrentAndFindable()
+		public async Task OnAfterShow_SeesItselfAsCurrentAndFindable()
 		{
 			var presenter = new SelfObservingPresenter();
 			var id = new ControllableScreenId(new InstantHandle(), () => presenter);
@@ -45,13 +45,13 @@ namespace Tests.ScreenFramework
 			await ScreenNavigator.Page.Push(id);
 
 			Assert.AreSame(id, presenter.CurrentAtAfterEnter,
-				"OnAfterEnter 時点で Current が自分になっている");
+				"OnAfterShow 時点で Current が自分になっている");
 			Assert.IsTrue(presenter.FoundSelfAtAfterEnter,
-				"OnAfterEnter 時点で FindEntry から自分が見える（孤児にならない）");
+				"OnAfterShow 時点で FindEntry から自分が見える（孤児にならない）");
 		}
 
 		[Test]
-		public async Task OnAfterEnter_ReceivesPushPayload()
+		public async Task OnAfterShow_ReceivesPushPayload()
 		{
 			var presenter = new PayloadCapturePresenter();
 			var id = new ControllableScreenId(new InstantHandle(), () => presenter);
@@ -62,7 +62,7 @@ namespace Tests.ScreenFramework
 			});
 
 			Assert.AreEqual("hello", presenter.AfterEnterValue,
-				"OnAfterEnter でも push payload が読める");
+				"OnAfterShow でも push payload が読める");
 		}
 
 		sealed class SelfObservingPresenter : IScreenPresenter
@@ -70,7 +70,7 @@ namespace Tests.ScreenFramework
 			public IScreenIdentifier CurrentAtAfterEnter;
 			public bool FoundSelfAtAfterEnter;
 
-			UniTask IScreenPresenter.OnAfterEnter(INavigationDataReader r, ITransitionContext ctx, CancellationToken c)
+			UniTask IScreenPresenter.OnAfterShow(INavigationDataReader r, ITransitionContext ctx, CancellationToken c)
 			{
 				CurrentAtAfterEnter = ScreenNavigator.Page.Current;
 				FoundSelfAtAfterEnter = ScreenNavigator.Page.FindEntry<SelfObservingPresenter>() != null;
@@ -84,7 +84,7 @@ namespace Tests.ScreenFramework
 		{
 			public string AfterEnterValue = "<none>";
 
-			UniTask IScreenPresenter.OnAfterEnter(INavigationDataReader r, ITransitionContext ctx, CancellationToken c)
+			UniTask IScreenPresenter.OnAfterShow(INavigationDataReader r, ITransitionContext ctx, CancellationToken c)
 			{
 				if (r != null && r.TryRead<PayloadData>(out var d)) AfterEnterValue = d.V;
 				return UniTask.CompletedTask;

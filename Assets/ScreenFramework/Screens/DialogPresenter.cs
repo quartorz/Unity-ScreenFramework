@@ -26,15 +26,15 @@ namespace ScreenFramework
 			_hasResult = true;
 		}
 
-		/// <summary>OnBeforeExit を固定化して writer 書き込みを基底に閉じ込める。</summary>
-		protected sealed override UniTask OnBeforeExit(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct)
+		/// <summary>OnBeforeHide を固定化して writer 書き込みを基底に閉じ込める。</summary>
+		protected sealed override UniTask OnBeforeHide(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct)
 		{
 			if (_hasResult) writer.Write(_result);
-			return OnBeforeExitCore(ctx, ct);
+			return OnBeforeHideCore(ctx, ct);
 		}
 
 		/// <summary>派生側はこちらを override する。</summary>
-		protected virtual UniTask OnBeforeExitCore(ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
+		protected virtual UniTask OnBeforeHideCore(ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
 
 		/// <summary>
 		/// OnAfterUnload も固定化して結果を書く。suspended のまま Resume を挟まず破棄される場合

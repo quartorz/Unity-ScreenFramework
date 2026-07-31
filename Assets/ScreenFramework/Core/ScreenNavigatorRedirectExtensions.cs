@@ -3,7 +3,7 @@ using Cysharp.Threading.Tasks;
 namespace ScreenFramework
 {
 	/// <summary>
-	/// hook（OnAfterEnter 等）内から次画面へリダイレクトするための fire-and-forget ヘルパ。
+	/// hook（OnAfterShow 等）内から次画面へリダイレクトするための fire-and-forget ヘルパ。
 	/// <para>
 	/// hook の中で<b>同じレイヤー</b>の遷移を <c>await</c> すると恒久デッドロックする
 	/// （新しい遷移は現在の遷移の完了を待ち、現在の遷移はその hook の完了を待つ相互待ち）。

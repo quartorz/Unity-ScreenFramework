@@ -9,7 +9,7 @@ namespace Tests.ScreenFramework
 	using static ScreenTestFixtures;
 
 	/// <summary>
-	/// hook（OnAfterEnter）内からの <see cref="ScreenNavigatorRedirectExtensions.Redirect(UniTask)"/> による
+	/// hook（OnAfterShow）内からの <see cref="ScreenNavigatorRedirectExtensions.Redirect(UniTask)"/> による
 	/// リダイレクトが、デッドロックせず現在の遷移の後に実行されることを検証する。
 	/// （同じことを await で書くと恒久デッドロックする＝#4 の注意書きの裏付け。）
 	/// </summary>
@@ -41,11 +41,11 @@ namespace Tests.ScreenFramework
 		}
 
 		[Test]
-		public async Task Redirect_FromOnAfterEnter_RunsAfterCurrent_NoDeadlock()
+		public async Task Redirect_FromOnAfterShow_RunsAfterCurrent_NoDeadlock()
 		{
 			var idB = new MarkerScreenId("B");
 
-			// A の OnAfterEnter で B へリダイレクト（.Redirect() = fire-and-forget）。
+			// A の OnAfterShow で B へリダイレクト（.Redirect() = fire-and-forget）。
 			// await Push(A) はデッドロックせず完了する。
 			await ScreenNavigator.Page.Push(new RedirectingScreenId(idB));
 
@@ -71,7 +71,7 @@ namespace Tests.ScreenFramework
 			readonly IScreenIdentifier _next;
 			public RedirectingPresenter(IScreenIdentifier next) => _next = next;
 
-			UniTask IScreenPresenter.OnAfterEnter(INavigationDataReader r, ITransitionContext ctx, CancellationToken c)
+			UniTask IScreenPresenter.OnAfterShow(INavigationDataReader r, ITransitionContext ctx, CancellationToken c)
 			{
 				// await すると恒久デッドロック。Redirect（=Forget）で発行し、現遷移完了後に走らせる。
 				ScreenNavigator.Page

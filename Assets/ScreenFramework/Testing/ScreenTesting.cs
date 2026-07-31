@@ -46,7 +46,7 @@ namespace ScreenFramework
 		public static INavigationDataReader EmptyReader => EmptyNavigationDataReader.Instance;
 
 		/// <summary>
-		/// 1 個の INavigationData を含むリーダーを作る。OnBeforeEnter テスト等で。
+		/// 1 個の INavigationData を含むリーダーを作る。OnBeforeShow テスト等で。
 		/// </summary>
 		public static INavigationDataReader ReaderWith(INavigationData data)
 		{
@@ -56,7 +56,7 @@ namespace ScreenFramework
 		}
 
 		/// <summary>
-		/// OnBeforeExit / OnAfterExit テスト用。Presenter が書き込んだ値を後から
+		/// OnBeforeHide / OnAfterHide テスト用。Presenter が書き込んだ値を後から
 		/// readerView から読み返す。
 		/// </summary>
 		public static INavigationDataWriter NewWriter(out INavigationDataReader readerView)
@@ -80,8 +80,8 @@ namespace ScreenFramework
 
 		/// <summary>
 		/// Push 時のライフサイクル一式を実機 Navigator と同順で呼ぶ。
-		/// OnInitialize → OnBeforeLoad → OnAfterLoad → OnBeforeEnter → OnAfterEnter。
-		/// <paramref name="reader"/> は OnBeforeLoad / OnBeforeEnter / OnAfterEnter に渡される push payload 相当。
+		/// OnInitialize → OnBeforeLoad → OnAfterLoad → OnBeforeShow → OnAfterShow。
+		/// <paramref name="reader"/> は OnBeforeLoad / OnBeforeShow / OnAfterShow に渡される push payload 相当。
 		/// 任意のフェーズで例外が出れば呼び出し側に伝播する（実機の挙動と同じ）。
 		/// </summary>
 		public static async UniTask PushAsync(
@@ -99,13 +99,13 @@ namespace ScreenFramework
 			await presenter.OnInitialize(ct);
 			await presenter.OnBeforeLoad(reader, context, ct);
 			await presenter.OnAfterLoad(ViewOf(view), reader, context, ct);
-			await presenter.OnBeforeEnter(reader, context, ct);
-			await presenter.OnAfterEnter(reader, context, ct);
+			await presenter.OnBeforeShow(reader, context, ct);
+			await presenter.OnAfterShow(reader, context, ct);
 		}
 
 		/// <summary>
 		/// Pop 時のライフサイクル一式を実機 Navigator と同順で呼ぶ。
-		/// OnBeforeExit → OnAfterExit → OnAfterUnload。
+		/// OnBeforeHide → OnAfterHide → OnAfterUnload。
 		/// 戻り値は Presenter が exit 時に書き込んだ値を読み返すための reader。
 		/// </summary>
 		public static async UniTask<INavigationDataReader> PopAsync(
@@ -118,8 +118,8 @@ namespace ScreenFramework
 			var writer = (INavigationDataWriter)store;
 			context ??= NewTransition(OperationKind.Pop);
 
-			await presenter.OnBeforeExit(writer, context, ct);
-			await presenter.OnAfterExit(writer, context, ct);
+			await presenter.OnBeforeHide(writer, context, ct);
+			await presenter.OnAfterHide(writer, context, ct);
 			await presenter.OnAfterUnload(writer, ct);
 			return store;
 		}

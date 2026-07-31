@@ -9,8 +9,8 @@ namespace ScreenFramework
 	/// 該当タイミングで自動的に await する。
 	///
 	/// タイミング:
-	///   Enter: SetActive(true) → OnBeforeEnter → PlayEnter → OnAfterEnter
-	///   Exit : OnBeforeExit → PlayExit → SetActive(false) → OnAfterExit
+	///   Enter: SetActive(true) → OnBeforeShow → PlayEnter → OnAfterShow
+	///   Exit : OnBeforeHide → PlayExit → SetActive(false) → OnAfterHide
 	///
 	/// Pop の場合、下から戻る画面に対しても Enter が走る（Cover で隠れていた場合のみ。
 	/// Stack で常時 visible だった場合は Enter 不要なので呼ばれない）。

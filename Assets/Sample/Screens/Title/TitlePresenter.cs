@@ -24,7 +24,7 @@ namespace Sample
 			return UniTask.CompletedTask;
 		}
 
-		protected override async UniTask OnAfterEnter(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct)
+		protected override async UniTask OnAfterShow(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct)
 		{
 			try
 			{

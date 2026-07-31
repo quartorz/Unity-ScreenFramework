@@ -70,8 +70,8 @@ namespace Tests.ScreenFramework
 
 			// Stack なので Suspend は発火しない（Exit 系も発火しない）
 			CollectionAssert.DoesNotContain(lowerPresenter.Events, "Suspend");
-			CollectionAssert.DoesNotContain(lowerPresenter.Events, "BeforeExit");
-			CollectionAssert.DoesNotContain(lowerPresenter.Events, "AfterExit");
+			CollectionAssert.DoesNotContain(lowerPresenter.Events, "BeforeHide");
+			CollectionAssert.DoesNotContain(lowerPresenter.Events, "AfterHide");
 
 			await ScreenNavigator.Page.Pop();
 
@@ -166,10 +166,10 @@ namespace Tests.ScreenFramework
 
 			public UniTask OnBeforeLoad(INavigationDataReader r, ITransitionContext ctx, CancellationToken c) { Events.Add("BeforeLoad"); return UniTask.CompletedTask; }
 			public UniTask OnAfterLoad(IScreenViewInstance v, INavigationDataReader r, ITransitionContext ctx, CancellationToken c) { Events.Add("AfterLoad"); return UniTask.CompletedTask; }
-			public UniTask OnBeforeEnter(INavigationDataReader r, ITransitionContext ctx, CancellationToken c) { Events.Add("BeforeEnter"); return UniTask.CompletedTask; }
-			public UniTask OnAfterEnter(INavigationDataReader r, ITransitionContext ctx, CancellationToken c) { Events.Add("AfterEnter"); return UniTask.CompletedTask; }
-			public UniTask OnBeforeExit(INavigationDataWriter w, ITransitionContext ctx, CancellationToken c) { Events.Add("BeforeExit"); return UniTask.CompletedTask; }
-			public UniTask OnAfterExit(INavigationDataWriter w, ITransitionContext ctx, CancellationToken c) { Events.Add("AfterExit"); return UniTask.CompletedTask; }
+			public UniTask OnBeforeShow(INavigationDataReader r, ITransitionContext ctx, CancellationToken c) { Events.Add("BeforeEnter"); return UniTask.CompletedTask; }
+			public UniTask OnAfterShow(INavigationDataReader r, ITransitionContext ctx, CancellationToken c) { Events.Add("AfterEnter"); return UniTask.CompletedTask; }
+			public UniTask OnBeforeHide(INavigationDataWriter w, ITransitionContext ctx, CancellationToken c) { Events.Add("BeforeHide"); return UniTask.CompletedTask; }
+			public UniTask OnAfterHide(INavigationDataWriter w, ITransitionContext ctx, CancellationToken c) { Events.Add("AfterHide"); return UniTask.CompletedTask; }
 			public UniTask OnSuspend(CancellationToken c) { Events.Add("Suspend"); return UniTask.CompletedTask; }
 			public UniTask OnResume(CancellationToken c) { Events.Add("Resume"); return UniTask.CompletedTask; }
 			public UniTask OnAfterUnload(INavigationDataWriter w, CancellationToken c) { Events.Add("AfterUnload"); return UniTask.CompletedTask; }

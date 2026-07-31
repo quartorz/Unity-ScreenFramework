@@ -83,12 +83,12 @@ namespace Tests.ScreenFramework.ModelBased
 		HoldLoad,
 		/// <summary>OnAfterLoad を外部解放まで停止する（rollback ゾーンの最終境界 = commit へ移る直前）。</summary>
 		HoldAfterLoad,
-		/// <summary>OnBeforeEnter を外部解放まで停止する（commit ゾーンの先頭境界）。</summary>
+		/// <summary>OnBeforeShow を外部解放まで停止する（commit ゾーンの先頭境界）。</summary>
 		HoldCommit,
-		/// <summary>OnAfterEnter を外部解放まで停止する（commit ゾーンの最終境界）。</summary>
+		/// <summary>OnAfterShow を外部解放まで停止する（commit ゾーンの最終境界）。</summary>
 		HoldAfterEnter,
 		/// <summary>
-		/// Pop の退場 hook（OnBeforeExit）で停止する。退場は safeCt=None で走る commit ゾーンなので、
+		/// Pop の退場 hook（OnBeforeHide）で停止する。退場は safeCt=None で走る commit ゾーンなので、
 		/// 停止中の外部キャンセルは無視され、preempt も巻き戻せず完走を待つ。入場側ゲート（HoldCommit）とは
 		/// 別コード（ExitPreviousAsync）の着弾点。
 		/// </summary>
@@ -105,10 +105,10 @@ namespace Tests.ScreenFramework.ModelBased
 		OnAfterLoadThrows,
 		/// <summary>ct 起因でない偽 OCE を OnBeforeLoad で投げる（rollback ゾーンでは OCE として伝播する契約）。</summary>
 		SpuriousOceOnBeforeLoad,
-		/// <summary>OnBeforeEnter（commit ゾーン）で投げる。吸収されて遷移は完走する契約。</summary>
+		/// <summary>OnBeforeShow（commit ゾーン）で投げる。吸収されて遷移は完走する契約。</summary>
 		EnterHookThrows,
-		/// <summary>OnAfterEnter（commit ゾーンの後段 hook）で投げる。同じく吸収されて完走する契約。</summary>
-		OnAfterEnterThrows,
+		/// <summary>OnAfterShow（commit ゾーンの後段 hook）で投げる。同じく吸収されて完走する契約。</summary>
+		OnAfterShowThrows,
 		/// <summary>PopTo の predicate で投げる。スタック無傷で伝播する契約。</summary>
 		PredicateThrows,
 	}
@@ -118,14 +118,14 @@ namespace Tests.ScreenFramework.ModelBased
 	public enum MbtScreenFaults
 	{
 		None = 0,
-		BeforeExitThrows = 1,
+		BeforeHideThrows = 1,
 		UnloadThrows = 2,
 		AfterUnloadThrows = 4,
 		/// <summary>復元ロード（2 回目以降の handle.Load）を常に失敗させる。dormant top 契約（C10）の入口。</summary>
 		RestoreLoadFails = 8,
 		ResumeThrows = 16,
-		/// <summary>OnAfterExit（退場の commit ゾーン後段）で投げる。吸収されて退場は完遂する契約。</summary>
-		AfterExitThrows = 32,
+		/// <summary>OnAfterHide（退場の commit ゾーン後段）で投げる。吸収されて退場は完遂する契約。</summary>
+		AfterHideThrows = 32,
 		/// <summary>OnSuspend（KeepOnCover で覆われる側）で投げる。吸収されて suspend は成立する契約。</summary>
 		SuspendThrows = 64,
 	}
@@ -297,7 +297,7 @@ namespace Tests.ScreenFramework.ModelBased
 					// 同一 hook に gate と fault を同居させない（停止する hook 自身が throw すると停止できない）
 					if (op.Fault == MbtOpFault.EnterHookThrows && op.Gate == MbtGateMode.HoldCommit)
 						op.Gate = MbtGateMode.None;
-					if (op.Fault == MbtOpFault.OnAfterEnterThrows && op.Gate == MbtGateMode.HoldAfterEnter)
+					if (op.Fault == MbtOpFault.OnAfterShowThrows && op.Gate == MbtGateMode.HoldAfterEnter)
 						op.Gate = MbtGateMode.None;
 				}
 				else if (op.Kind == MbtOpKind.Edit)
@@ -375,17 +375,17 @@ namespace Tests.ScreenFramework.ModelBased
 			4 => MbtOpFault.OnAfterLoadThrows,
 			5 => MbtOpFault.SpuriousOceOnBeforeLoad,
 			6 => MbtOpFault.EnterHookThrows,
-			_ => MbtOpFault.OnAfterEnterThrows,
+			_ => MbtOpFault.OnAfterShowThrows,
 		};
 
 		static MbtScreenFaults PickScreenFault(Random rng) => rng.Next(7) switch
 		{
-			0 => MbtScreenFaults.BeforeExitThrows,
+			0 => MbtScreenFaults.BeforeHideThrows,
 			1 => MbtScreenFaults.UnloadThrows,
 			2 => MbtScreenFaults.AfterUnloadThrows,
 			3 => MbtScreenFaults.RestoreLoadFails,
 			4 => MbtScreenFaults.ResumeThrows,
-			5 => MbtScreenFaults.AfterExitThrows,
+			5 => MbtScreenFaults.AfterHideThrows,
 			_ => MbtScreenFaults.SuspendThrows,
 		};
 	}

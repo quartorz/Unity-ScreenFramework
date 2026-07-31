@@ -17,10 +17,10 @@ namespace ScreenFramework
 		// reader/writer はフェーズ固有の bag（Pop の returnStore 等）で、ctx.Reader/Writer とは別物なので両方渡す。
 		UniTask OnBeforeLoad(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
 		UniTask OnAfterLoad(IScreenViewInstance view, INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
-		UniTask OnBeforeEnter(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
-		UniTask OnAfterEnter(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
-		UniTask OnBeforeExit(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
-		UniTask OnAfterExit(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
+		UniTask OnBeforeShow(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
+		UniTask OnAfterShow(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
+		UniTask OnBeforeHide(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
+		UniTask OnAfterHide(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
 		UniTask OnSuspend(CancellationToken ct) => UniTask.CompletedTask;
 		UniTask OnResume(CancellationToken ct) => UniTask.CompletedTask;
 		UniTask OnAfterUnload(INavigationDataWriter writer, CancellationToken ct) => UniTask.CompletedTask;
@@ -58,10 +58,10 @@ namespace ScreenFramework
 			return OnAfterLoad(reader, ctx, ct);
 		}
 
-		UniTask IScreenPresenter.OnBeforeEnter(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => OnBeforeEnter(reader, ctx, ct);
-		UniTask IScreenPresenter.OnAfterEnter(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => OnAfterEnter(reader, ctx, ct);
-		UniTask IScreenPresenter.OnBeforeExit(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct) => OnBeforeExit(writer, ctx, ct);
-		UniTask IScreenPresenter.OnAfterExit(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct) => OnAfterExit(writer, ctx, ct);
+		UniTask IScreenPresenter.OnBeforeShow(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => OnBeforeShow(reader, ctx, ct);
+		UniTask IScreenPresenter.OnAfterShow(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => OnAfterShow(reader, ctx, ct);
+		UniTask IScreenPresenter.OnBeforeHide(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct) => OnBeforeHide(writer, ctx, ct);
+		UniTask IScreenPresenter.OnAfterHide(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct) => OnAfterHide(writer, ctx, ct);
 		UniTask IScreenPresenter.OnSuspend(CancellationToken ct) => OnSuspend(ct);
 		UniTask IScreenPresenter.OnResume(CancellationToken ct) => OnResume(ct);
 		UniTask IScreenPresenter.OnAfterUnload(INavigationDataWriter writer, CancellationToken ct) => OnAfterUnload(writer, ct);
@@ -71,10 +71,10 @@ namespace ScreenFramework
 
 		protected virtual UniTask OnBeforeLoad(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
 		protected virtual UniTask OnAfterLoad(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
-		protected virtual UniTask OnBeforeEnter(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
-		protected virtual UniTask OnAfterEnter(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
-		protected virtual UniTask OnBeforeExit(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
-		protected virtual UniTask OnAfterExit(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
+		protected virtual UniTask OnBeforeShow(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
+		protected virtual UniTask OnAfterShow(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
+		protected virtual UniTask OnBeforeHide(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
+		protected virtual UniTask OnAfterHide(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
 		protected virtual UniTask OnSuspend(CancellationToken ct) => UniTask.CompletedTask;
 		protected virtual UniTask OnResume(CancellationToken ct) => UniTask.CompletedTask;
 		protected virtual UniTask OnAfterUnload(INavigationDataWriter writer, CancellationToken ct) => UniTask.CompletedTask;

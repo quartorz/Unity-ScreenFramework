@@ -482,12 +482,12 @@ namespace Tests.ScreenFramework.ModelBased
 							AddEnd(plan.Kind, ok: false);
 							SettleChain(op, MbtOutcome.Oce);
 							return;
-						// EnterHookThrows（OnBeforeEnter）/ OnAfterEnterThrows は commit ゾーンの hook。
+						// EnterHookThrows（OnBeforeShow）/ OnAfterShowThrows は commit ゾーンの hook。
 						// ここで return せず素通りさせる = GuardedHook に吸収され遷移は完走する（C1）。
 						case MbtOpFault.EnterHookThrows:
 							Tag(MbtCoverage.CommitHookEnterAbsorbed);
 							break;
-						case MbtOpFault.OnAfterEnterThrows:
+						case MbtOpFault.OnAfterShowThrows:
 							Tag(MbtCoverage.CommitHookAfterEnterAbsorbed);
 							break;
 					}
@@ -512,7 +512,7 @@ namespace Tests.ScreenFramework.ModelBased
 						SettleChain(op, MbtOutcome.Faulted);
 						return;
 					}
-					// 退場 hook（OnBeforeExit）での停止は commit ゾーン。退場効果はまだ適用していないので、
+					// 退場 hook（OnBeforeHide）での停止は commit ゾーン。退場効果はまだ適用していないので、
 					// 解放されるまでスタックは退場前のまま保たれる。外部キャンセルは無視され preempt も完走を待つ。
 					if (plan.Kind == MbtOpKind.Pop && plan.Gate == MbtGateMode.HoldExit && !op.GateReleased)
 					{
@@ -543,7 +543,7 @@ namespace Tests.ScreenFramework.ModelBased
 					return;
 				}
 				ApplyPushEffect(op);   // bookkeeping は Enter hook より前に確定する
-				// OnBeforeEnter / OnAfterEnter での停止はどちらも commit ゾーン（外部キャンセルは無視され完走）。
+				// OnBeforeShow / OnAfterShow での停止はどちらも commit ゾーン（外部キャンセルは無視され完走）。
 				if ((plan.Gate is MbtGateMode.HoldCommit or MbtGateMode.HoldAfterEnter) && !op.GateReleased)
 				{
 					op.State = OpState.GatedCommit;

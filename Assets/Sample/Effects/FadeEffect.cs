@@ -11,7 +11,7 @@ namespace Sample.Effects
 	/// プレハブには CanvasGroup + Image (raycastTarget=true, 全画面) を持つルートを 1 個置き、
 	/// この MonoBehaviour をそこに付ける。Canvas は Override Sorting + sortingOrder で前面に持ってくる。
 	/// <para>
-	/// 動き: <c>OnBeforeExit</c> で α 0→1 (カバー)、<c>OnAfterEnter</c> で α 1→0 (リビール)。
+	/// 動き: <c>OnBeforeHide</c> で α 0→1 (カバー)、<c>OnAfterShow</c> で α 1→0 (リビール)。
 	/// 旧 FadeTransition の Start / End と同じタイミングで「下層の切替を隠す」役割を担う。
 	/// </para>
 	/// </summary>
@@ -31,12 +31,12 @@ namespace Sample.Effects
 			_group.interactable = false;
 		}
 
-		public override async UniTask OnBeforeExit(ITransitionContext ctx, CancellationToken ct)
+		public override async UniTask OnBeforeHide(ITransitionContext ctx, CancellationToken ct)
 		{
 			await Fade(0f, 1f, ct);
 		}
 
-		public override async UniTask OnAfterEnter(ITransitionContext ctx, CancellationToken ct)
+		public override async UniTask OnAfterShow(ITransitionContext ctx, CancellationToken ct)
 		{
 			await Fade(1f, 0f, ct);
 		}

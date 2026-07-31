@@ -5,7 +5,7 @@ using Cysharp.Threading.Tasks;
 namespace ScreenFramework
 {
 	/// <remarks>
-	/// <b>hook 内からの同レイヤー遷移に注意</b>: Presenter / Effect の hook（OnAfterEnter 等）の中から
+	/// <b>hook 内からの同レイヤー遷移に注意</b>: Presenter / Effect の hook（OnAfterShow 等）の中から
 	/// <b>同じレイヤー</b>の遷移 API（Push/Pop/Replace/Change/Reset/PopTo/Close）を <c>await</c> すると
 	/// <b>恒久デッドロック</b>する。各遷移は直前の遷移の完了を待つ設計（FIFO + preempt）なので、
 	/// 新しい遷移は現在の遷移（＝その hook を待っている）の完了を待ち、相互待ちになるため。

@@ -490,8 +490,8 @@ namespace Tests.ScreenFramework
 		public async Task Shutdown_WithThrowingExitHook_CompletesAndAllowsReinitialize()
 		{
 			SetupNavigator();
-			LogAssert.Expect(LogType.Exception, new Regex("fault injected at BeforeExit"));
-			await ScreenNavigator.Page.Push(new ControllableScreenId(new InstantHandle(), () => new FaultyPresenter("BeforeExit")));
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at BeforeHide"));
+			await ScreenNavigator.Page.Push(new ControllableScreenId(new InstantHandle(), () => new FaultyPresenter("BeforeHide")));
 
 			await ScreenNavigator.Shutdown();
 
@@ -514,7 +514,7 @@ namespace Tests.ScreenFramework
 			var id = new ControllableScreenId(new InstantHandle(), () => gated);
 
 			var pushTask = ScreenNavigator.Page.Push(id);
-			await gated.Started;   // OnBeforeEnter = 完走必須ゾーンで停止中
+			await gated.Started;   // OnBeforeShow = 完走必須ゾーンで停止中
 
 			var shutdownTask = ScreenNavigator.Shutdown();
 			Assert.IsNull(ScreenNavigator.Page, "静的参照は Shutdown 呼び出しと同期に外れる");

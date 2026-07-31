@@ -16,7 +16,7 @@ namespace Tests.ScreenFramework.ModelBased
 		// commit ゾーンの停止中に来た外部キャンセルは無視されて完走する
 		public const string CancelGatedCommitIgnored = "cancel.gatedCommit.ignored";
 		public const string CancelGatedAfterEnterIgnored = "cancel.gatedAfterEnter.ignored";
-		// 退場 hook（Pop の OnBeforeExit）滞留中の外部キャンセルも commit ゾーンなので無視される
+		// 退場 hook（Pop の OnBeforeHide）滞留中の外部キャンセルも commit ゾーンなので無視される
 		public const string CancelGatedExitIgnored = "cancel.gatedExit.ignored";
 		// 待機中（body 突入前）のキャンセルは自分の番で OCE
 		public const string CancelWaiting = "cancel.waiting.oce";

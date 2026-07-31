@@ -101,7 +101,7 @@ namespace Tests.ScreenFramework.ModelBased
 		[Test]
 		public async Task Pinned_CancelInCommitZone_IsIgnored_AndPushCompletes()
 		{
-			// commit ゾーン（OnBeforeEnter 滞留中）の外部キャンセルは無視され完走する（C2）。
+			// commit ゾーン（OnBeforeShow 滞留中）の外部キャンセルは無視され完走する（C2）。
 			var sc = new MbtScenario();
 			sc.Ops.Add(new MbtOp
 			{
@@ -168,7 +168,7 @@ namespace Tests.ScreenFramework.ModelBased
 			sc.Ops.Add(new MbtOp
 			{
 				Kind = MbtOpKind.Push,
-				Screen = new MbtScreenSpec { Uid = 2, Label = "S2", Faults = MbtScreenFaults.BeforeExitThrows },
+				Screen = new MbtScreenSpec { Uid = 2, Label = "S2", Faults = MbtScreenFaults.BeforeHideThrows },
 			});
 			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Pop });
 			await AssertScenario(sc);
@@ -177,30 +177,30 @@ namespace Tests.ScreenFramework.ModelBased
 		[Test]
 		public async Task Pinned_CommitZoneAfterEnterHook_IsAbsorbed_AndScreenIsTracked()
 		{
-			// OnAfterEnter（commit ゾーン後段）の例外は吸収され、画面は孤児にならず追跡される（C1）。
-			// 旧 CommitZoneGuardTests.Push_OnAfterEnterThrows の引退先。
+			// OnAfterShow（commit ゾーン後段）の例外は吸収され、画面は孤児にならず追跡される（C1）。
+			// 旧 CommitZoneGuardTests.Push_OnAfterShowThrows の引退先。
 			var sc = new MbtScenario();
 			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 1, Label = "S1" } });
 			sc.Ops.Add(new MbtOp
 			{
 				Kind = MbtOpKind.Push,
 				Screen = new MbtScreenSpec { Uid = 2, Label = "S2" },
-				Fault = MbtOpFault.OnAfterEnterThrows,
+				Fault = MbtOpFault.OnAfterShowThrows,
 			});
 			await AssertScenario(sc);
 		}
 
 		[Test]
-		public async Task Pinned_CommitZoneAfterExitHook_PopStillCompletes()
+		public async Task Pinned_CommitZoneAfterHideHook_PopStillCompletes()
 		{
-			// OnAfterExit（退場の commit ゾーン後段）の例外は吸収され、Pop は Current 更新まで完走する（C1）。
-			// 旧 CommitZoneGuardTests.Pop_OnAfterExitThrows の引退先。
+			// OnAfterHide（退場の commit ゾーン後段）の例外は吸収され、Pop は Current 更新まで完走する（C1）。
+			// 旧 CommitZoneGuardTests.Pop_OnAfterHideThrows の引退先。
 			var sc = new MbtScenario();
 			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 1, Label = "S1" } });
 			sc.Ops.Add(new MbtOp
 			{
 				Kind = MbtOpKind.Push,
-				Screen = new MbtScreenSpec { Uid = 2, Label = "S2", Faults = MbtScreenFaults.AfterExitThrows },
+				Screen = new MbtScreenSpec { Uid = 2, Label = "S2", Faults = MbtScreenFaults.AfterHideThrows },
 			});
 			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Pop });
 			await AssertScenario(sc);
@@ -264,8 +264,8 @@ namespace Tests.ScreenFramework.ModelBased
 		[Test]
 		public async Task Pinned_CancelAtAfterEnter_IsIgnored_AndPushCompletes()
 		{
-			// commit ゾーンの最終境界（OnAfterEnter 滞留中）の外部キャンセルは無視され、push は完走する（C2 の commit 側）。
-			// commit ゾーンが OnAfterEnter まで届いていないと RED になる。
+			// commit ゾーンの最終境界（OnAfterShow 滞留中）の外部キャンセルは無視され、push は完走する（C2 の commit 側）。
+			// commit ゾーンが OnAfterShow まで届いていないと RED になる。
 			var sc = new MbtScenario();
 			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 1, Label = "S1" } });
 			sc.Ops.Add(new MbtOp
@@ -302,7 +302,7 @@ namespace Tests.ScreenFramework.ModelBased
 		[Test]
 		public async Task Pinned_CancelAtExit_IsIgnored_AndPopCompletes()
 		{
-			// 退場 hook（OnBeforeExit）滞留中の外部キャンセルは commit ゾーンなので無視され、Pop は完走して
+			// 退場 hook（OnBeforeHide）滞留中の外部キャンセルは commit ゾーンなので無視され、Pop は完走して
 			// 下画面を復元する（C2 の commit 側 / 退場経路）。退場が rollback ゾーン扱いに退行すると RED になる。
 			var sc = new MbtScenario();
 			sc.Ops.Add(new MbtOp { Kind = MbtOpKind.Push, Screen = new MbtScreenSpec { Uid = 1, Label = "S1" } });
@@ -508,7 +508,7 @@ namespace Tests.ScreenFramework.ModelBased
 		[Test]
 		public async Task Pinned_ShutdownDuringCommitGate_CompletesThenFolds()
 		{
-			// commit ゾーン（OnBeforeEnter 滞留）の push は Shutdown(preempt) でも巻き戻らず完走し、その後に
+			// commit ゾーン（OnBeforeShow 滞留）の push は Shutdown(preempt) でも巻き戻らず完走し、その後に
 			// 全レイヤーが畳まれて空になる（C9 + C2 commit 側）。回復プローブは行わない。
 			var sc = new MbtScenario { ShutdownAtEnd = true };
 			sc.Ops.Add(new MbtOp

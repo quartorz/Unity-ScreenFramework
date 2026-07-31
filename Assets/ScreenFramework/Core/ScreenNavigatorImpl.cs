@@ -462,8 +462,8 @@ namespace ScreenFramework
 						// Stack mode: 前画面はそのまま残す。Effect 側だけ Exit hook を進める。
 						if (effect != null)
 						{
-							await effect.OnBeforeExit(EffectZone.Commit, safeCt);
-							await effect.OnAfterExit(EffectZone.Commit, safeCt);
+							await effect.OnBeforeHide(EffectZone.Commit, safeCt);
+							await effect.OnAfterHide(EffectZone.Commit, safeCt);
 						}
 					}
 				}
@@ -472,8 +472,8 @@ namespace ScreenFramework
 					// 最初の Push: prev exit 無し。Effect 側だけ Exit hook を進める。
 					if (effect != null)
 					{
-						await effect.OnBeforeExit(EffectZone.Commit, safeCt);
-						await effect.OnAfterExit(EffectZone.Commit, safeCt);
+						await effect.OnBeforeHide(EffectZone.Commit, safeCt);
+						await effect.OnAfterHide(EffectZone.Commit, safeCt);
 					}
 				}
 
@@ -484,7 +484,7 @@ namespace ScreenFramework
 				}
 
 				// bookkeeping は Enter hook より前に済ませる（Replace/Change と統一）。
-				// これで OnBeforeEnter/OnAfterEnter から見た Current / FindEntry が常に「自分が最上段」になる。
+				// これで OnBeforeShow/OnAfterShow から見た Current / FindEntry が常に「自分が最上段」になる。
 				_history.Push(id);
 				_live.Add(entry);
 				await EnterNewTopAsync(entry, effect, ctx, safeCt);
@@ -566,12 +566,12 @@ namespace ScreenFramework
 				}
 
 				await WhenBoth(
-					GuardedHook(() => below.Presenter.OnBeforeEnter(returnStore, ctx, safeCt)),
-					effect?.OnBeforeEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
+					GuardedHook(() => below.Presenter.OnBeforeShow(returnStore, ctx, safeCt)),
+					effect?.OnBeforeShow(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
 				await RunEnterAsync(below, safeCt, playViewEnter: belowReappears);
 				await WhenBoth(
-					GuardedHook(() => below.Presenter.OnAfterEnter(returnStore, ctx, safeCt)),
-					effect?.OnAfterEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
+					GuardedHook(() => below.Presenter.OnAfterShow(returnStore, ctx, safeCt)),
+					effect?.OnAfterShow(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
 			}
 			finally
 			{
@@ -649,18 +649,18 @@ namespace ScreenFramework
 					}
 
 					await WhenBoth(
-						GuardedHook(() => below.Presenter.OnBeforeEnter(returnStore, ctx, safeCt)),
-						effect?.OnBeforeEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
+						GuardedHook(() => below.Presenter.OnBeforeShow(returnStore, ctx, safeCt)),
+						effect?.OnBeforeShow(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
 					await RunEnterAsync(below, safeCt, playViewEnter: belowReappears);
 					await WhenBoth(
-						GuardedHook(() => below.Presenter.OnAfterEnter(returnStore, ctx, safeCt)),
-						effect?.OnAfterEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
+						GuardedHook(() => below.Presenter.OnAfterShow(returnStore, ctx, safeCt)),
+						effect?.OnAfterShow(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
 				}
 				else if (effect != null)
 				{
 					// 下が無い：Effect の Enter hook だけ完走させる
-					await effect.OnBeforeEnter(EffectZone.Commit, safeCt);
-					await effect.OnAfterEnter(EffectZone.Commit, safeCt);
+					await effect.OnBeforeShow(EffectZone.Commit, safeCt);
+					await effect.OnAfterShow(EffectZone.Commit, safeCt);
 				}
 			}
 			finally
@@ -893,14 +893,14 @@ namespace ScreenFramework
 		}
 
 		/// <summary>
-		/// entry を退場させる。effect が non-null なら effect の OnBeforeExit / OnAfterExit を並列で走らせる。
+		/// entry を退場させる。effect が non-null なら effect の OnBeforeHide / OnAfterHide を並列で走らせる。
 		/// </summary>
 		async UniTask ExitPreviousAsync(LiveEntry entry, ScreenCacheMode cacheMode, bool isPop, EffectRunner effect, ITransitionContext ctx, CancellationToken ct, NavigationDataStore returnStore = null, bool isNormalPop = false)
 		{
 			var store = returnStore ?? new NavigationDataStore();
 			var writer = (INavigationDataWriter)store;
 
-			// 既に suspend 済みの画面（KeepOnCover で覆われた中間画面など）は、BeforeExit/AfterExit/OnSuspend を
+			// 既に suspend 済みの画面（KeepOnCover で覆われた中間画面など）は、BeforeHide/AfterHide/OnSuspend を
 			// 対で消化して隠れている。Resume を挟まずに破棄される場合、もう一度 Exit hook を走らせると
 			// 「Resume なしの 2 連続 Exit」になり不整合なので、退場フェーズは丸ごとスキップして teardown だけ行う。
 			// Stack mode の下層画面は ExitPreviousAsync を通らず Suspended=false のままなので、ここは通常どおり Exit する。
@@ -908,16 +908,16 @@ namespace ScreenFramework
 			{
 				// Exit は常に完走必須ゾーン。hook の例外で退場・破棄の bookkeeping が中断しないよう全ステップを保護する。
 				await WhenBoth(
-					GuardedHook(() => entry.Presenter.OnBeforeExit(writer, ctx, ct)),
-					effect?.OnBeforeExit(EffectZone.Commit, ct) ?? UniTask.CompletedTask);
+					GuardedHook(() => entry.Presenter.OnBeforeHide(writer, ctx, ct)),
+					effect?.OnBeforeHide(EffectZone.Commit, ct) ?? UniTask.CompletedTask);
 
 				var anim = entry.View.As<IScreenAnimatedView>();
 				if (anim != null) await GuardedHook(() => anim.PlayExit(ct));
 				entry.View.SetActive(false);
 
 				await WhenBoth(
-					GuardedHook(() => entry.Presenter.OnAfterExit(writer, ctx, ct)),
-					effect?.OnAfterExit(EffectZone.Commit, ct) ?? UniTask.CompletedTask);
+					GuardedHook(() => entry.Presenter.OnAfterHide(writer, ctx, ct)),
+					effect?.OnAfterHide(EffectZone.Commit, ct) ?? UniTask.CompletedTask);
 			}
 
 			if (cacheMode == ScreenCacheMode.DestroyOnCover || isPop)
@@ -1069,17 +1069,17 @@ namespace ScreenFramework
 			entry.View.SetParent(_config.Container.Root);
 			entry.View.SetActive(true);
 
-			// OnBeforeEnter / OnAfterEnter には同じ push payload を渡す（後者だけ空、という非対称を解消）。
+			// OnBeforeShow / OnAfterShow には同じ push payload を渡す（後者だけ空、という非対称を解消）。
 			var payload = entry.PushPayload;
 			await WhenBoth(
-				GuardedHook(() => entry.Presenter.OnBeforeEnter(payload, ctx, safeCt)),
-				effect?.OnBeforeEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
+				GuardedHook(() => entry.Presenter.OnBeforeShow(payload, ctx, safeCt)),
+				effect?.OnBeforeShow(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
 
 			await RunEnterAsync(entry, safeCt);
 
 			await WhenBoth(
-				GuardedHook(() => entry.Presenter.OnAfterEnter(payload, ctx, safeCt)),
-				effect?.OnAfterEnter(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
+				GuardedHook(() => entry.Presenter.OnAfterShow(payload, ctx, safeCt)),
+				effect?.OnAfterShow(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
 			entry.PushPayload = null;
 		}
 
@@ -1091,8 +1091,8 @@ namespace ScreenFramework
 		{
 			if (effect != null)
 			{
-				await effect.OnBeforeExit(EffectZone.Commit, safeCt);
-				await effect.OnAfterExit(EffectZone.Commit, safeCt);
+				await effect.OnBeforeHide(EffectZone.Commit, safeCt);
+				await effect.OnAfterHide(EffectZone.Commit, safeCt);
 			}
 			// bookkeeping は Enter hook より前（Push と統一）。Enter hook 内の Current は新画面になる。
 			_history.Push(id);
@@ -1110,8 +1110,8 @@ namespace ScreenFramework
 		/// 完走必須（commit）ゾーンの 1 ステップ（Presenter ライフサイクル hook / View 演出 / Handle.Unload）を
 		/// Effect と同じく例外吸収して実行する。commit に入った後は「画面の見た目」と Navigator の内部状態
 		/// （_history / _live）を一致させ続けるのが最優先なので、ステップの例外（同期 throw 含む）はログに留めて
-		/// 遷移本筋を続行する。これがないと、たとえば OnBeforeEnter/OnAfterEnter の throw で
-		/// 「見えているのに Navigator が知らない孤児」、OnAfterExit の throw で「隠れたのに Current のまま」になり、
+		/// 遷移本筋を続行する。これがないと、たとえば OnBeforeShow/OnAfterShow の throw で
+		/// 「見えているのに Navigator が知らない孤児」、OnAfterHide の throw で「隠れたのに Current のまま」になり、
 		/// 装飾（Effect）より本筋（Presenter）の方が壊れやすいという逆転が起きる。
 		/// rollback ゾーン（OnInitialize / OnBeforeLoad / OnAfterLoad）はこれを通さず、従来どおり例外を伝播させる。
 		/// </summary>

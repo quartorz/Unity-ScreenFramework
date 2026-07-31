@@ -82,7 +82,7 @@ namespace Tests.ScreenFramework
 	internal sealed class NullPresenter : IScreenPresenter { }
 
 	/// <summary>
-	/// OnBeforeEnter で <see cref="Started"/> を立ててから <see cref="Release"/> が呼ばれるまで待機する。
+	/// OnBeforeShow で <see cref="Started"/> を立ててから <see cref="Release"/> が呼ばれるまで待機する。
 	/// push を「完走必須ゾーン」(safeCt=None) で固定して、外部からの Cancel が効かない状況を作るために使う。
 	/// 複合操作の race を意図的に出すテスト用。
 	/// </summary>
@@ -93,7 +93,7 @@ namespace Tests.ScreenFramework
 		public UniTask Started => _started.Task;
 		public void Release() => _release.TrySetResult();
 
-		UniTask IScreenPresenter.OnBeforeEnter(INavigationDataReader r, ITransitionContext ctx, CancellationToken c)
+		UniTask IScreenPresenter.OnBeforeShow(INavigationDataReader r, ITransitionContext ctx, CancellationToken c)
 		{
 			_started.TrySetResult();
 			return _release.Task;

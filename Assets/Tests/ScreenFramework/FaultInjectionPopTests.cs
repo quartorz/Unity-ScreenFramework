@@ -11,7 +11,7 @@ namespace Tests.ScreenFramework
 
 	/// <summary>
 	/// フォールトインジェクションテスト: Pop の注入点のうち、<b>演出発火</b>のものだけ。
-	/// commit ゾーンの hook 吸収（OnBeforeExit / OnAfterUnload / OnResume / 復帰側 Enter hook）・
+	/// commit ゾーンの hook 吸収（OnBeforeHide / OnAfterUnload / OnResume / 復帰側 Enter hook）・
 	/// 復元ロード失敗の dormant top 着地・Configure 例外の伝播は、モデルベーステスト（<c>ModelBased/</c>）が
 	/// 直接カバーするため引退した（2026-06-13。docs/MODEL-BASED-TESTING.md の引退節）。
 	/// PlayExit（退場演出）と復帰側 PlayEnter（復帰演出）の発火は、MBT のモック View が

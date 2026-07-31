@@ -171,7 +171,7 @@ namespace Tests.Sample
 		[Test]
 		public async Task StartClick_BeforeReady_DoesNothing()
 		{
-			// 完了させないために TCS で OnAfterEnter の await を手前で止める
+			// 完了させないために TCS で OnAfterShow の await を手前で止める
 			var tcs = new UniTaskCompletionSource<BootstrapMasterResponse>();
 			_masterApi.BootstrapFunc = opt => tcs.Task;
 

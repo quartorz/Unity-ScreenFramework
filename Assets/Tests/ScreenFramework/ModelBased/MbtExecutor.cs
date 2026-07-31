@@ -139,7 +139,7 @@ namespace Tests.ScreenFramework.ModelBased
 		public readonly List<string> Events = new();
 
 		/// <summary>
-		/// HoldExit な Pop が発行した「次の退場 hook で停止する」ゲート。退場させられる画面の OnBeforeExit が
+		/// HoldExit な Pop が発行した「次の退場 hook で停止する」ゲート。退場させられる画面の OnBeforeHide が
 		/// 最初に 1 回だけ consume する。退場は safeCt=None で走るため ct 登録なしの commit ゾーンゲート。
 		/// </summary>
 		public UniTaskCompletionSource PendingExitGate;
@@ -282,34 +282,34 @@ namespace Tests.ScreenFramework.ModelBased
 			await MbtGate.AwaitRollback(_rt?.AfterLoadGate, ct);
 		}
 
-		UniTask IScreenPresenter.OnBeforeEnter(INavigationDataReader r, ITransitionContext x, CancellationToken ct)
+		UniTask IScreenPresenter.OnBeforeShow(INavigationDataReader r, ITransitionContext x, CancellationToken ct)
 		{
 			if (_op?.Fault == MbtOpFault.EnterHookThrows)
-				throw new InvalidOperationException($"mbt: OnBeforeEnter fault ({_spec.Label})");
+				throw new InvalidOperationException($"mbt: OnBeforeShow fault ({_spec.Label})");
 			if (_rt?.CommitGate != null) return _rt.CommitGate.Task;
 			return UniTask.CompletedTask;
 		}
 
-		UniTask IScreenPresenter.OnAfterEnter(INavigationDataReader r, ITransitionContext x, CancellationToken ct)
+		UniTask IScreenPresenter.OnAfterShow(INavigationDataReader r, ITransitionContext x, CancellationToken ct)
 		{
-			if (_op?.Fault == MbtOpFault.OnAfterEnterThrows)
-				throw new InvalidOperationException($"mbt: OnAfterEnter fault ({_spec.Label})");
+			if (_op?.Fault == MbtOpFault.OnAfterShowThrows)
+				throw new InvalidOperationException($"mbt: OnAfterShow fault ({_spec.Label})");
 			if (_rt?.AfterEnterGate != null) return _rt.AfterEnterGate.Task;
 			return UniTask.CompletedTask;
 		}
 
-		UniTask IScreenPresenter.OnBeforeExit(INavigationDataWriter w, ITransitionContext x, CancellationToken ct)
+		UniTask IScreenPresenter.OnBeforeHide(INavigationDataWriter w, ITransitionContext x, CancellationToken ct)
 		{
-			if ((_spec.Faults & MbtScreenFaults.BeforeExitThrows) != 0)
-				throw new InvalidOperationException($"mbt: OnBeforeExit fault ({_spec.Label})");
+			if ((_spec.Faults & MbtScreenFaults.BeforeHideThrows) != 0)
+				throw new InvalidOperationException($"mbt: OnBeforeHide fault ({_spec.Label})");
 			// HoldExit な Pop が仕掛けた退場ゲートを最初の退場で 1 回だけ消費する。退場は commit ゾーン
 			// （safeCt=None）なので ct 登録なしで待つ。
 			return _world.ConsumeExitGate()?.Task ?? UniTask.CompletedTask;
 		}
 
-		UniTask IScreenPresenter.OnAfterExit(INavigationDataWriter w, ITransitionContext x, CancellationToken ct)
-			=> (_spec.Faults & MbtScreenFaults.AfterExitThrows) != 0
-				? throw new InvalidOperationException($"mbt: OnAfterExit fault ({_spec.Label})")
+		UniTask IScreenPresenter.OnAfterHide(INavigationDataWriter w, ITransitionContext x, CancellationToken ct)
+			=> (_spec.Faults & MbtScreenFaults.AfterHideThrows) != 0
+				? throw new InvalidOperationException($"mbt: OnAfterHide fault ({_spec.Label})")
 				: UniTask.CompletedTask;
 
 		UniTask IScreenPresenter.OnSuspend(CancellationToken ct)
@@ -367,32 +367,32 @@ namespace Tests.ScreenFramework.ModelBased
 			await MbtGate.AwaitRollback(_rt?.AfterLoadGate, ct);
 		}
 
-		protected override UniTask OnBeforeEnter(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct)
+		protected override UniTask OnBeforeShow(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct)
 		{
 			if (_op?.Fault == MbtOpFault.EnterHookThrows)
-				throw new InvalidOperationException($"mbt: OnBeforeEnter fault ({_spec.Label})");
+				throw new InvalidOperationException($"mbt: OnBeforeShow fault ({_spec.Label})");
 			if (_rt?.CommitGate != null) return _rt.CommitGate.Task;
 			return UniTask.CompletedTask;
 		}
 
-		protected override UniTask OnAfterEnter(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct)
+		protected override UniTask OnAfterShow(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct)
 		{
-			if (_op?.Fault == MbtOpFault.OnAfterEnterThrows)
-				throw new InvalidOperationException($"mbt: OnAfterEnter fault ({_spec.Label})");
+			if (_op?.Fault == MbtOpFault.OnAfterShowThrows)
+				throw new InvalidOperationException($"mbt: OnAfterShow fault ({_spec.Label})");
 			if (_rt?.AfterEnterGate != null) return _rt.AfterEnterGate.Task;
 			return UniTask.CompletedTask;
 		}
 
-		protected override UniTask OnBeforeExitCore(ITransitionContext ctx, CancellationToken ct)
+		protected override UniTask OnBeforeHideCore(ITransitionContext ctx, CancellationToken ct)
 		{
-			if ((_spec.Faults & MbtScreenFaults.BeforeExitThrows) != 0)
-				throw new InvalidOperationException($"mbt: OnBeforeExit fault ({_spec.Label})");
+			if ((_spec.Faults & MbtScreenFaults.BeforeHideThrows) != 0)
+				throw new InvalidOperationException($"mbt: OnBeforeHide fault ({_spec.Label})");
 			return _world.ConsumeExitGate()?.Task ?? UniTask.CompletedTask;
 		}
 
-		protected override UniTask OnAfterExit(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct)
-			=> (_spec.Faults & MbtScreenFaults.AfterExitThrows) != 0
-				? throw new InvalidOperationException($"mbt: OnAfterExit fault ({_spec.Label})")
+		protected override UniTask OnAfterHide(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct)
+			=> (_spec.Faults & MbtScreenFaults.AfterHideThrows) != 0
+				? throw new InvalidOperationException($"mbt: OnAfterHide fault ({_spec.Label})")
 				: UniTask.CompletedTask;
 
 		protected override UniTask OnSuspend(CancellationToken ct)
@@ -677,7 +677,7 @@ namespace Tests.ScreenFramework.ModelBased
 			}
 			else if (plan.Kind == MbtOpKind.Pop && plan.Gate == MbtGateMode.HoldExit)
 			{
-				// 退場ゲートを world スロットに置く。この Pop が退場させる画面の OnBeforeExit が consume する。
+				// 退場ゲートを world スロットに置く。この Pop が退場させる画面の OnBeforeHide が consume する。
 				rt.ExitGate = new UniTaskCompletionSource();
 				world.PendingExitGate = rt.ExitGate;
 			}
@@ -699,7 +699,7 @@ namespace Tests.ScreenFramework.ModelBased
 				case MbtOpKind.Pop:
 					rt.Task = WrapPlain(nav.Pop(
 						new PopOptions { Configure = configure, InterruptPriority = plan.Priority }, ct)).Preserve();
-					// HoldExit で退場が起きなかった（履歴 1 枚で no-op、または BeforeExit が consume 前に throw）場合、
+					// HoldExit で退場が起きなかった（履歴 1 枚で no-op、または BeforeHide が consume 前に throw）場合、
 					// 仕掛けたゲートが残り後続の退場に誤爆するので回収する。
 					if (plan.Gate == MbtGateMode.HoldExit
 						&& ReferenceEquals(world.PendingExitGate, rt.ExitGate) && rt.Task.Status != UniTaskStatus.Pending)

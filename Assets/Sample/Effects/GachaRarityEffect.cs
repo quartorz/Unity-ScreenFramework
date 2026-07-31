@@ -13,8 +13,8 @@ namespace Sample.Effects
 	/// この MonoBehaviour をルートに付ける。Canvas は Override Sorting で前面へ。
 	/// </para>
 	/// <para>
-	/// 動き: OnBeforeExit で「カバー色」を rarity に応じて選んでフェードイン →
-	/// OnAfterEnter で短い hold の後にフェードアウト。
+	/// 動き: OnBeforeHide で「カバー色」を rarity に応じて選んでフェードイン →
+	/// OnAfterShow で短い hold の後にフェードアウト。
 	/// rarity が高いほど色が派手・hold が長くなる（高揚感）。
 	/// </para>
 	/// </summary>
@@ -57,7 +57,7 @@ namespace Sample.Effects
 			return UniTask.CompletedTask;
 		}
 
-		public override async UniTask OnBeforeExit(ITransitionContext ctx, CancellationToken ct)
+		public override async UniTask OnBeforeHide(ITransitionContext ctx, CancellationToken ct)
 		{
 			// hook 順序は操作種別で変わり、Pop ではここが OnBeforeLoad より先に来る／load hook が来ないこともある。
 			// そのため style はここでも遅延初期化して、未初期化の prefab デフォルト色でフェードする事故を防ぐ。
@@ -82,7 +82,7 @@ namespace Sample.Effects
 			_styleReady = true;
 		}
 
-		public override async UniTask OnAfterEnter(ITransitionContext ctx, CancellationToken ct)
+		public override async UniTask OnAfterShow(ITransitionContext ctx, CancellationToken ct)
 		{
 			if (_holdSeconds > 0f)
 			{

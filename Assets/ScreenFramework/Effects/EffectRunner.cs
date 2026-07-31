@@ -105,10 +105,10 @@ namespace ScreenFramework
 		// hook 名ではなくゾーン引数で例外時の挙動を決める。Load 系も Pop 復元時は Commit で呼ばれる。
 		public UniTask OnBeforeLoad(EffectZone zone, CancellationToken ct) => RunHook(zone, _instance != null ? _instance.OnBeforeLoad : null, ct);
 		public UniTask OnAfterLoad(EffectZone zone, CancellationToken ct)  => RunHook(zone, _instance != null ? _instance.OnAfterLoad  : null, ct);
-		public UniTask OnBeforeExit(EffectZone zone, CancellationToken ct) => RunHook(zone, _instance != null ? _instance.OnBeforeExit : null, ct);
-		public UniTask OnAfterExit(EffectZone zone, CancellationToken ct)  => RunHook(zone, _instance != null ? _instance.OnAfterExit  : null, ct);
-		public UniTask OnBeforeEnter(EffectZone zone, CancellationToken ct)=> RunHook(zone, _instance != null ? _instance.OnBeforeEnter: null, ct);
-		public UniTask OnAfterEnter(EffectZone zone, CancellationToken ct) => RunHook(zone, _instance != null ? _instance.OnAfterEnter : null, ct);
+		public UniTask OnBeforeHide(EffectZone zone, CancellationToken ct) => RunHook(zone, _instance != null ? _instance.OnBeforeHide : null, ct);
+		public UniTask OnAfterHide(EffectZone zone, CancellationToken ct)  => RunHook(zone, _instance != null ? _instance.OnAfterHide  : null, ct);
+		public UniTask OnBeforeShow(EffectZone zone, CancellationToken ct)=> RunHook(zone, _instance != null ? _instance.OnBeforeShow: null, ct);
+		public UniTask OnAfterShow(EffectZone zone, CancellationToken ct) => RunHook(zone, _instance != null ? _instance.OnAfterShow : null, ct);
 
 		/// <summary>
 		/// 遷移完了時の最終クリーンアップ。完走必須ゾーンで Destroy 遅延した分もここで消える。

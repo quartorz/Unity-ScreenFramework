@@ -18,8 +18,8 @@ namespace ScreenFramework
 	/// 完走必須ゾーン (Exit 以降、および Pop/Close の復元 load) の例外は遷移完了まで Destroy 遅延される。
 	/// </para>
 	/// <para>
-	/// ライフサイクル hook の呼び出し順序は操作種別で変わる。Push は OnBeforeLoad → OnAfterLoad → OnBeforeExit → ... の順だが、
-	/// Pop で下画面が破棄済みなら OnBeforeExit → ... → OnBeforeLoad → OnAfterLoad → OnBeforeEnter の順になり、
+	/// ライフサイクル hook の呼び出し順序は操作種別で変わる。Push は OnBeforeLoad → OnAfterLoad → OnBeforeHide → ... の順だが、
+	/// Pop で下画面が破棄済みなら OnBeforeHide → ... → OnBeforeLoad → OnAfterLoad → OnBeforeShow の順になり、
 	/// 下画面がキャッシュ済み（生存・suspended）の Pop では load hook は一切呼ばれない。
 	/// よって OnBeforeLoad が必ず最初に来る前提で初期化を書いてはならない。
 	/// 全体の初期化（asset の事前読込など）は <see cref="OnInitialize"/> に書くこと。
@@ -37,9 +37,9 @@ namespace ScreenFramework
 
 		public virtual UniTask OnBeforeLoad(ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
 		public virtual UniTask OnAfterLoad(ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
-		public virtual UniTask OnBeforeExit(ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
-		public virtual UniTask OnAfterExit(ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
-		public virtual UniTask OnBeforeEnter(ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
-		public virtual UniTask OnAfterEnter(ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
+		public virtual UniTask OnBeforeHide(ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
+		public virtual UniTask OnAfterHide(ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
+		public virtual UniTask OnBeforeShow(ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
+		public virtual UniTask OnAfterShow(ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
 	}
 }

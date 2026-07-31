@@ -161,7 +161,7 @@ namespace Tests.ScreenFramework
 		{
 			readonly object _obj;
 			public FixedHandle(object obj) { _obj = obj; }
-			public UniTask<IScreenViewInstance> Load(System.IProgress<float> p, CancellationToken c)
+			public UniTask<IScreenViewInstance> Load(Transform stagingParent, System.IProgress<float> p, CancellationToken c)
 				=> UniTask.FromResult<IScreenViewInstance>(new FixedView(_obj));
 			public UniTask Unload(CancellationToken c) => UniTask.CompletedTask;
 		}

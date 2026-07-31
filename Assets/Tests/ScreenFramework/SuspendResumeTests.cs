@@ -183,7 +183,7 @@ namespace Tests.ScreenFramework
 
 		sealed class InstantHandle : IScreenHandle
 		{
-			public UniTask<IScreenViewInstance> Load(System.IProgress<float> p, CancellationToken c)
+			public UniTask<IScreenViewInstance> Load(Transform stagingParent, System.IProgress<float> p, CancellationToken c)
 				=> UniTask.FromResult<IScreenViewInstance>(new NopView());
 			public UniTask Unload(CancellationToken c) => UniTask.CompletedTask;
 		}

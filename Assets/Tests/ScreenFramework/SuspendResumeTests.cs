@@ -166,8 +166,8 @@ namespace Tests.ScreenFramework
 
 			public UniTask OnBeforeLoad(INavigationDataReader r, ITransitionContext ctx, CancellationToken c) { Events.Add("BeforeLoad"); return UniTask.CompletedTask; }
 			public UniTask OnAfterLoad(IScreenViewInstance v, INavigationDataReader r, ITransitionContext ctx, CancellationToken c) { Events.Add("AfterLoad"); return UniTask.CompletedTask; }
-			public UniTask OnBeforeShow(INavigationDataReader r, ITransitionContext ctx, CancellationToken c) { Events.Add("BeforeEnter"); return UniTask.CompletedTask; }
-			public UniTask OnAfterShow(INavigationDataReader r, ITransitionContext ctx, CancellationToken c) { Events.Add("AfterEnter"); return UniTask.CompletedTask; }
+			public UniTask OnBeforeShow(INavigationDataReader r, ITransitionContext ctx, CancellationToken c) { Events.Add("BeforeShow"); return UniTask.CompletedTask; }
+			public UniTask OnAfterShow(INavigationDataReader r, ITransitionContext ctx, CancellationToken c) { Events.Add("AfterShow"); return UniTask.CompletedTask; }
 			public UniTask OnBeforeHide(INavigationDataWriter w, ITransitionContext ctx, CancellationToken c) { Events.Add("BeforeHide"); return UniTask.CompletedTask; }
 			public UniTask OnAfterHide(INavigationDataWriter w, ITransitionContext ctx, CancellationToken c) { Events.Add("AfterHide"); return UniTask.CompletedTask; }
 			public UniTask OnSuspend(CancellationToken c) { Events.Add("Suspend"); return UniTask.CompletedTask; }
@@ -193,6 +193,7 @@ namespace Tests.ScreenFramework
 			public void SetActive(bool active) { }
 			public void SetParent(Transform parent) { }
 			public T As<T>() where T : class => null;
+			public void ApplyCanvasSorting(Camera camera, int sortingLayerId, int order) { }
 		}
 	}
 }

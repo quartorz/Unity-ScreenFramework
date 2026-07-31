@@ -29,7 +29,7 @@ namespace Tests.ScreenFramework
 		/// </summary>
 		public static EffectRunner NewLoadedEffectRunner(ScreenEffect instance, ITransitionContext ctx)
 		{
-			var runner = new EffectRunner(prefabRef: null, parent: null, ctx);
+			var runner = new EffectRunner(prefabRef: null, host: null, stagingParent: null, ctx);
 			const System.Reflection.BindingFlags flags =
 				System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
 			typeof(EffectRunner).GetField("_instance", flags).SetValue(runner, instance);
@@ -56,7 +56,7 @@ namespace Tests.ScreenFramework
 		public bool UnloadCalled { get; private set; }
 		public FaultyLoadHandle(bool throwSynchronously = false) => _throwSynchronously = throwSynchronously;
 
-		public UniTask<IScreenViewInstance> Load(IProgress<float> p, CancellationToken c)
+		public UniTask<IScreenViewInstance> Load(Transform stagingParent, IProgress<float> p, CancellationToken c)
 			=> _throwSynchronously
 				? throw new InvalidOperationException("fault injected at handle.Load (sync)")
 				: UniTask.FromException<IScreenViewInstance>(new InvalidOperationException("fault injected at handle.Load (async)"));
@@ -67,7 +67,7 @@ namespace Tests.ScreenFramework
 	/// <summary>Unload が失敗する handle。Load は即座に NopView を返す。</summary>
 	internal sealed class FaultyUnloadHandle : IScreenHandle
 	{
-		public UniTask<IScreenViewInstance> Load(IProgress<float> p, CancellationToken c)
+		public UniTask<IScreenViewInstance> Load(Transform stagingParent, IProgress<float> p, CancellationToken c)
 			=> UniTask.FromResult<IScreenViewInstance>(new NopView());
 		public UniTask Unload(CancellationToken c)
 			=> throw new InvalidOperationException("fault injected at handle.Unload");
@@ -77,7 +77,7 @@ namespace Tests.ScreenFramework
 	internal sealed class NullViewHandle : IScreenHandle
 	{
 		public bool UnloadCalled { get; private set; }
-		public UniTask<IScreenViewInstance> Load(IProgress<float> p, CancellationToken c)
+		public UniTask<IScreenViewInstance> Load(Transform stagingParent, IProgress<float> p, CancellationToken c)
 			=> UniTask.FromResult<IScreenViewInstance>(null);
 		public UniTask Unload(CancellationToken c) { UnloadCalled = true; return UniTask.CompletedTask; }
 	}
@@ -87,7 +87,7 @@ namespace Tests.ScreenFramework
 	{
 		readonly object _view;
 		public WrappingHandle(object view) => _view = view;
-		public UniTask<IScreenViewInstance> Load(IProgress<float> p, CancellationToken c)
+		public UniTask<IScreenViewInstance> Load(Transform stagingParent, IProgress<float> p, CancellationToken c)
 			=> UniTask.FromResult(ScreenTesting.ViewOf(_view));
 		public UniTask Unload(CancellationToken c) => UniTask.CompletedTask;
 	}
@@ -113,8 +113,8 @@ namespace Tests.ScreenFramework
 		UniTask IScreenPresenter.OnInitialize(CancellationToken c) => Step("Initialize");
 		UniTask IScreenPresenter.OnBeforeLoad(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("BeforeLoad");
 		UniTask IScreenPresenter.OnAfterLoad(IScreenViewInstance v, INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("AfterLoad");
-		UniTask IScreenPresenter.OnBeforeShow(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("BeforeEnter");
-		UniTask IScreenPresenter.OnAfterShow(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("AfterEnter");
+		UniTask IScreenPresenter.OnBeforeShow(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("BeforeShow");
+		UniTask IScreenPresenter.OnAfterShow(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("AfterShow");
 		UniTask IScreenPresenter.OnBeforeHide(INavigationDataWriter w, ITransitionContext x, CancellationToken c) => Step("BeforeHide");
 		UniTask IScreenPresenter.OnAfterHide(INavigationDataWriter w, ITransitionContext x, CancellationToken c) => Step("AfterHide");
 		UniTask IScreenPresenter.OnSuspend(CancellationToken c) => Step("Suspend");
@@ -136,8 +136,8 @@ namespace Tests.ScreenFramework
 		UniTask IScreenPresenter.OnInitialize(CancellationToken c) => Step("Initialize");
 		UniTask IScreenPresenter.OnBeforeLoad(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("BeforeLoad");
 		UniTask IScreenPresenter.OnAfterLoad(IScreenViewInstance v, INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("AfterLoad");
-		UniTask IScreenPresenter.OnBeforeShow(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("BeforeEnter");
-		UniTask IScreenPresenter.OnAfterShow(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("AfterEnter");
+		UniTask IScreenPresenter.OnBeforeShow(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("BeforeShow");
+		UniTask IScreenPresenter.OnAfterShow(INavigationDataReader r, ITransitionContext x, CancellationToken c) => Step("AfterShow");
 		UniTask IScreenPresenter.OnBeforeHide(INavigationDataWriter w, ITransitionContext x, CancellationToken c) => Step("BeforeHide");
 		UniTask IScreenPresenter.OnAfterHide(INavigationDataWriter w, ITransitionContext x, CancellationToken c) => Step("AfterHide");
 		UniTask IScreenPresenter.OnSuspend(CancellationToken c) => Step("Suspend");
@@ -205,7 +205,7 @@ namespace Tests.ScreenFramework
 		UniTask IScreenPresenter.OnAfterShow(INavigationDataReader r, ITransitionContext x, CancellationToken c)
 		{
 			ScreenNavigator.Page.Push(_next, new PushOptions { InterruptPriority = InterruptPriority.Queue }).Redirect();
-			throw new InvalidOperationException("fault injected at AfterEnter (redirect origin)");
+			throw new InvalidOperationException("fault injected at AfterShow (redirect origin)");
 		}
 	}
 

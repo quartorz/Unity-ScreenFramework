@@ -132,6 +132,7 @@ namespace Tests.ScreenFramework
 			public void SetActive(bool active) { }
 			public void SetParent(Transform parent) { }
 			public T As<T>() where T : class => null;
+			public void ApplyCanvasSorting(Camera camera, int sortingLayerId, int order) { }
 		}
 	}
 }

@@ -37,8 +37,8 @@ namespace Tests.ScreenFramework
 			});
 		}
 
-		/// <summary>Page レイヤーに IEffectRegistry を渡すセットアップ(effectRoot 省略時は意図的に未設定)。</summary>
-		protected void SetupNavigatorWithPageRegistry(IEffectRegistry registry, Transform effectRoot = null)
+		/// <summary>Page レイヤーに IEffectRegistry を渡すセットアップ(effectHost 省略時は意図的に未設定)。</summary>
+		protected void SetupNavigatorWithPageRegistry(IEffectRegistry registry, IEffectHost effectHost = null)
 		{
 			_pageContainer = NewContainer("PageRoot");
 			ScreenNavigator.Initialize(new TestServices(), new ScreenLayerSetup
@@ -51,7 +51,7 @@ namespace Tests.ScreenFramework
 					StackInputPolicy = StackInputPolicy.BlockUnderlying,
 					DefaultModal = true,
 					Registry = registry,
-					EffectRoot = effectRoot,
+					EffectHost = effectHost,
 				},
 				Dialog = NewLayer(NewContainer("DialogRoot")),
 				SystemDialog = NewLayer(NewContainer("SysRoot")),

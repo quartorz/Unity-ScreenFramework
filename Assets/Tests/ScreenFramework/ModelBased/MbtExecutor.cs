@@ -58,6 +58,8 @@ namespace Tests.ScreenFramework.ModelBased
 		public readonly int Uid;
 		public bool Active;
 		public bool HasParent;
+		/// <summary>最後に ApplyCanvasSorting で受け取った Sorting Order。一度も適用されていなければ int.MinValue。</summary>
+		public int SortingOrder = int.MinValue;
 
 		public MbtView(int uid, MbtWorld world)
 		{
@@ -67,6 +69,7 @@ namespace Tests.ScreenFramework.ModelBased
 
 		public void SetActive(bool active) => Active = active;
 		public void SetParent(Transform parent) => HasParent = parent != null;
+		public void ApplyCanvasSorting(Camera camera, int sortingLayerId, int order) => SortingOrder = order;
 		public T As<T>() where T : class => null;
 	}
 
@@ -93,7 +96,7 @@ namespace Tests.ScreenFramework.ModelBased
 	/// <summary>
 	/// C5 の resolution 耐性専用の Registry。EditMode では Effect prefab を実体化できない（PlayerLoop を
 	/// 回さないので InstantiateAsync の Yield が再開しない）ため、実体化に至らない 3 失敗モードだけを注入する:
-	/// Resolve 例外 / マッチ無し / マッチするが EffectRoot 未設定。いずれも navigator 側で effect=null に落ち、
+	/// Resolve 例外 / マッチ無し / マッチするが EffectHost 未設定。いずれも navigator 側で effect=null に落ち、
 	/// 遷移はモデルどおり（Effect 無し）に完走しなければならない。EffectRoot は常に null で渡すので
 	/// LoadAndInstantiateAsync には決して入らない。
 	/// </summary>
@@ -106,7 +109,7 @@ namespace Tests.ScreenFramework.ModelBased
 		{
 			if (_mode == MbtEffectMode.RegistryThrows)
 				throw new InvalidOperationException("mbt: effect registry resolve fault");
-			// RootMissing はマッチを返すが EffectRoot=null なので navigator が警告して skip する。
+			// RootMissing はマッチを返すが EffectHost=null なので navigator が警告して skip する。
 			if (_mode == MbtEffectMode.RootMissing)
 				return new ResolveResult(true, null);
 			return new ResolveResult(false, null);   // NoMatch
@@ -186,7 +189,7 @@ namespace Tests.ScreenFramework.ModelBased
 		public UniTaskCompletionSource<IScreenViewInstance> LoadGate;
 		public UniTaskCompletionSource AfterLoadGate;
 		public UniTaskCompletionSource CommitGate;
-		public UniTaskCompletionSource AfterEnterGate;
+		public UniTaskCompletionSource AfterShowGate;
 		public UniTaskCompletionSource ExitGate;
 		public bool GatesReleased;
 	}
@@ -216,7 +219,7 @@ namespace Tests.ScreenFramework.ModelBased
 			_world = world;
 		}
 
-		public async UniTask<IScreenViewInstance> Load(IProgress<float> p, CancellationToken ct)
+		public async UniTask<IScreenViewInstance> Load(Transform stagingParent, IProgress<float> p, CancellationToken ct)
 		{
 			if (_op != null)
 			{
@@ -294,7 +297,7 @@ namespace Tests.ScreenFramework.ModelBased
 		{
 			if (_op?.Fault == MbtOpFault.OnAfterShowThrows)
 				throw new InvalidOperationException($"mbt: OnAfterShow fault ({_spec.Label})");
-			if (_rt?.AfterEnterGate != null) return _rt.AfterEnterGate.Task;
+			if (_rt?.AfterShowGate != null) return _rt.AfterShowGate.Task;
 			return UniTask.CompletedTask;
 		}
 
@@ -379,7 +382,7 @@ namespace Tests.ScreenFramework.ModelBased
 		{
 			if (_op?.Fault == MbtOpFault.OnAfterShowThrows)
 				throw new InvalidOperationException($"mbt: OnAfterShow fault ({_spec.Label})");
-			if (_rt?.AfterEnterGate != null) return _rt.AfterEnterGate.Task;
+			if (_rt?.AfterShowGate != null) return _rt.AfterShowGate.Task;
 			return UniTask.CompletedTask;
 		}
 
@@ -445,7 +448,7 @@ namespace Tests.ScreenFramework.ModelBased
 			var dialogC = NewContainer("MbtDialogRoot");
 			var sysC = NewContainer("MbtSysRoot");
 			// Page レイヤーだけ stack モード / Effect Registry を反映する（Effect は Page のみに渡す運用に合わせる）。
-			// EffectRoot は常に null。resolution 失敗の 3 経路だけを踏み、Effect 実体化（EditMode で停止）には入らない。
+			// EffectHost は常に null。resolution 失敗の 3 経路だけを踏み、Effect 実体化（EditMode で停止）には入らない。
 			var pageRegistry = sc.EffectMode == MbtEffectMode.None ? null : new MbtEffectRegistry(sc.EffectMode);
 			ScreenNavigator.Initialize(new TestServices(), new ScreenLayerSetup
 			{
@@ -454,7 +457,7 @@ namespace Tests.ScreenFramework.ModelBased
 					Container = pageC,
 					StackMode = sc.StackMode,
 					Registry = pageRegistry,
-					EffectRoot = null,
+					EffectHost = null,
 				},
 				Dialog = NewLayer(dialogC),
 				SystemDialog = NewLayer(sysC),
@@ -649,7 +652,7 @@ namespace Tests.ScreenFramework.ModelBased
 				rt.LoadGate?.TrySetResult(new MbtView(rt.Plan.Screen.Uid, world));
 				rt.AfterLoadGate?.TrySetResult();
 				rt.CommitGate?.TrySetResult();
-				rt.AfterEnterGate?.TrySetResult();
+				rt.AfterShowGate?.TrySetResult();
 				rt.ExitGate?.TrySetResult();
 			}
 		}
@@ -671,7 +674,7 @@ namespace Tests.ScreenFramework.ModelBased
 				if (plan.Gate == MbtGateMode.HoldLoad) rt.LoadGate = new UniTaskCompletionSource<IScreenViewInstance>();
 				if (plan.Gate == MbtGateMode.HoldAfterLoad) rt.AfterLoadGate = new UniTaskCompletionSource();
 				if (plan.Gate == MbtGateMode.HoldCommit) rt.CommitGate = new UniTaskCompletionSource();
-				if (plan.Gate == MbtGateMode.HoldAfterEnter) rt.AfterEnterGate = new UniTaskCompletionSource();
+				if (plan.Gate == MbtGateMode.HoldAfterEnter) rt.AfterShowGate = new UniTaskCompletionSource();
 				world.OpBySpecUid[plan.Screen.Uid] = plan;
 				world.RuntimeBySpecUid[plan.Screen.Uid] = rt;
 			}

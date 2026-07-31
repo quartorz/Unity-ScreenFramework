@@ -154,6 +154,7 @@ namespace Tests.ScreenFramework
 			public void SetActive(bool active) { }
 			public void SetParent(Transform parent) { }
 			public T As<T>() where T : class => _obj as T;
+			public void ApplyCanvasSorting(Camera camera, int sortingLayerId, int order) { }
 		}
 
 		sealed class FixedHandle : IScreenHandle

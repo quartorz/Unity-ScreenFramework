@@ -244,7 +244,7 @@ namespace Tests.ScreenFramework
 
 		sealed class InstantHandle : IScreenHandle
 		{
-			public UniTask<IScreenViewInstance> Load(IProgress<float> p, CancellationToken c)
+			public UniTask<IScreenViewInstance> Load(Transform stagingParent, IProgress<float> p, CancellationToken c)
 				=> UniTask.FromResult<IScreenViewInstance>(new NopView());
 			public UniTask Unload(CancellationToken c) => UniTask.CompletedTask;
 		}
@@ -256,6 +256,7 @@ namespace Tests.ScreenFramework
 			public void SetActive(bool active) { }
 			public void SetParent(Transform parent) { }
 			public T As<T>() where T : class => null;
+			public void ApplyCanvasSorting(Camera camera, int sortingLayerId, int order) { }
 		}
 	}
 }

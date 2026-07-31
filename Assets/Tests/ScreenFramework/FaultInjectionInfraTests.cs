@@ -45,7 +45,7 @@ namespace Tests.ScreenFramework
 		[Test]
 		public async Task EffectMatchedButEffectRootMissing_WarnsAndSkips_TransitionContinues()
 		{
-			LogAssert.Expect(LogType.Warning, new Regex("EffectRoot is null"));
+			LogAssert.Expect(LogType.Warning, new Regex("EffectHost is null"));
 			SetupNavigatorWithPageRegistry(new StubMatchingEffectRegistry(NewAssetRef()));   // EffectRoot は意図的に未設定
 
 			var id = new MarkerScreenId("A");

@@ -49,13 +49,14 @@ namespace Tests.ScreenFramework
 		public void SetActive(bool active) { }
 		public void SetParent(Transform parent) { }
 		public T As<T>() where T : class => null;
+		public void ApplyCanvasSorting(Camera camera, int sortingLayerId, int order) { }
 	}
 
 	/// <summary>OnLoad で即座に NopView を返す handle。Unload 呼出を記録する。</summary>
 	internal sealed class InstantHandle : IScreenHandle
 	{
 		public bool UnloadCalled { get; private set; }
-		public UniTask<IScreenViewInstance> Load(IProgress<float> p, CancellationToken c)
+		public UniTask<IScreenViewInstance> Load(Transform stagingParent, IProgress<float> p, CancellationToken c)
 			=> UniTask.FromResult<IScreenViewInstance>(new NopView());
 		public UniTask Unload(CancellationToken c) { UnloadCalled = true; return UniTask.CompletedTask; }
 	}
@@ -70,7 +71,7 @@ namespace Tests.ScreenFramework
 		readonly UniTaskCompletionSource<IScreenViewInstance> _source;
 		public bool UnloadCalled { get; private set; }
 		public ControllableHandle(UniTaskCompletionSource<IScreenViewInstance> source) => _source = source;
-		public async UniTask<IScreenViewInstance> Load(IProgress<float> p, CancellationToken ct)
+		public async UniTask<IScreenViewInstance> Load(Transform stagingParent, IProgress<float> p, CancellationToken ct)
 		{
 			using (ct.Register(() => _source.TrySetCanceled(ct)))
 				return await _source.Task;

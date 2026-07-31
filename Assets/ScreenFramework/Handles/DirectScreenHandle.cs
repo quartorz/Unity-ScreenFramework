@@ -20,13 +20,22 @@ namespace ScreenFramework
 			_prefab = prefab ?? throw new ArgumentNullException(nameof(prefab));
 		}
 
-		public UniTask<IScreenViewInstance> Load(IProgress<float> progress, CancellationToken ct)
+		public UniTask<IScreenViewInstance> Load(Transform stagingParent, IProgress<float> progress, CancellationToken ct)
 		{
-			_instance = Object.Instantiate(_prefab);
-			// Awake をトリガーするため一度 active にし、その直後に隠す。
-			// Navigator が見せるまでの間 presenter 未配線で Update 等が回り続けないようにする。
-			if (!_instance.activeSelf) _instance.SetActive(true);
-			_instance.SetActive(false);
+			if (stagingParent != null)
+			{
+				// 非アクティブな staging 親の下に生成 → 描画も Awake/OnEnable も走らないまま返す。
+				// Navigator が SetParent/SetActive で見せた時に初めて Awake が走る（presenter 配線後）。
+				_instance = Object.Instantiate(_prefab, stagingParent);
+				if (_instance.activeSelf) _instance.SetActive(false);
+			}
+			else
+			{
+				_instance = Object.Instantiate(_prefab);
+				// staging が無い場合のフォールバック: Awake をトリガーするため一度 active にし、その直後に隠す。
+				if (!_instance.activeSelf) _instance.SetActive(true);
+				_instance.SetActive(false);
+			}
 			return UniTask.FromResult<IScreenViewInstance>(new PrefabScreenViewInstance(_instance));
 		}
 

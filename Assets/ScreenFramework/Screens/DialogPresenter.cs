@@ -16,20 +16,15 @@ namespace ScreenFramework
 		where TOutput : class
 		where TResult : INavigationData
 	{
-		TResult _result;
-		bool _hasResult;
+		readonly DialogResultSlot<TResult> _result = new DialogResultSlot<TResult>();
 
 		/// <summary>OK 等で結果を確定する。複数回呼べる（後勝ち）。</summary>
-		protected void SetResult(TResult value)
-		{
-			_result = value;
-			_hasResult = true;
-		}
+		protected void SetResult(TResult value) => _result.Set(value);
 
 		/// <summary>OnBeforeHide を固定化して writer 書き込みを基底に閉じ込める。</summary>
 		protected sealed override UniTask OnBeforeHide(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct)
 		{
-			if (_hasResult) writer.Write(_result);
+			_result.WriteIfSet(writer);
 			return OnBeforeHideCore(ctx, ct);
 		}
 
@@ -38,12 +33,12 @@ namespace ScreenFramework
 
 		/// <summary>
 		/// OnAfterUnload も固定化して結果を書く。suspended のまま Resume を挟まず破棄される場合
-		/// （KeepOnCover で覆われたダイアログを Close する等）は Exit hook が走らないため、
-		/// teardown 側の最後の書き込みチャンスで結果を落とさない（Exit 経由で書き込み済みなら同値の上書きで無害）。
+		/// （KeepOnCover で覆われたダイアログを Close する等）は Hide hook が走らないため、
+		/// teardown 側の最後の書き込みチャンスで結果を落とさない（Hide 経由で書き込み済みなら同値の上書きで無害）。
 		/// </summary>
 		protected sealed override UniTask OnAfterUnload(INavigationDataWriter writer, CancellationToken ct)
 		{
-			if (_hasResult) writer.Write(_result);
+			_result.WriteIfSet(writer);
 			return OnAfterUnloadCore(writer, ct);
 		}
 

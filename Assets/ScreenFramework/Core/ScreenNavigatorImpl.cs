@@ -80,6 +80,20 @@ namespace ScreenFramework
 			return null;
 		}
 
+		public IScreenEntry TopEntry
+		{
+			get
+			{
+				for (var i = _live.Count - 1; i >= 0; i--)
+				{
+					var e = _live[i];
+					if (e != null)
+						return new ScreenEntry(this, e.Presenter);
+				}
+				return null;
+			}
+		}
+
 		public async UniTask<TResult> PushAndAwait<TResult>(ScreenIdentifier<TResult> id, PushOptions opt = default, CancellationToken ct = default)
 			where TResult : INavigationData
 		{
@@ -332,6 +346,9 @@ namespace ScreenFramework
 					_currentDoneSignal = null;
 					// チェーンが空になった = 遷移中に遅延された History.Edit を安全に適用できる。
 					DrainDeferredEdits();
+					// 中間 Close / PopTo / DismissAll / Edit など EnterNewTopAsync を通らない構造変化も含め、
+					// 最終的なスタック形に合わせて Sorting を振り直す（Stack モードの index ずれ対策）。
+					ReflowCanvasSorting();
 				}
 				myCts.Dispose();
 			}
@@ -396,12 +413,14 @@ namespace ScreenFramework
 				return null;
 			}
 			if (!resolved.HasMatch) return null;
-			if (_config.EffectRoot == null)
+			if (_config.EffectHost == null)
 			{
-				Debug.LogWarning("[ScreenFramework] EffectRegistry matched but EffectRoot is null. Skipping effect.");
+				Debug.LogWarning("[ScreenFramework] EffectRegistry matched but EffectHost is null. Skipping effect.");
 				return null;
 			}
-			var runner = new EffectRunner(resolved.EffectPrefab, _config.EffectRoot, ctx);
+			// camera / Sorting Layer / order は host が持つ。order は host が走行中の Effect と
+			// 重複しないよう採番するため、host を共有する複数レイヤー間でも衝突しない。
+			var runner = new EffectRunner(resolved.EffectPrefab, _config.EffectHost, _services.InstantiationStagingRoot, ctx);
 			await runner.LoadAndInstantiateAsync(ct);
 			return runner;
 		}
@@ -512,12 +531,45 @@ namespace ScreenFramework
 		{
 			if (_history.Count <= 1) return;
 
-			// Pop は最初から完走必須ゾーン
 			var safeCt = CancellationToken.None;
 
 			var effect = await ResolveAndInstantiateEffectAsync(ctx, safeCt);
 			try
 			{
+				// ロールバック可能ゾーン: 戻り先の復帰処理を先に実行する。
+				// 失敗時は例外が伝播して Pop がキャンセルされる（top はまだ退場していない）。
+				var belowIndex = _live.Count - 2;
+				var below = _live[belowIndex];
+				LiveEntry preloadedBelow = null;
+				try
+				{
+					if (below == null)
+					{
+						var belowId = _history[belowIndex];
+						preloadedBelow = await CreateAndPreloadAsync(belowId, pushStore: new NavigationDataStore(), ctx, effect, EffectZone.Rollback, cacheOverride: null, ct);
+					}
+					else if (below.Suspended)
+					{
+						// OnResume 失敗で Pop をキャンセルできるよう、退場前に試行する。
+						// Pop がキャンセルされた場合に画面状態が変わらないよう、view は元に戻す。
+						below.View.SetActive(true);
+						try { await below.Presenter.OnResume(ct); }
+						finally { below.View.SetActive(false); }
+					}
+
+					if (ct.IsCancellationRequested)
+					{
+						if (preloadedBelow != null) await DiscardEntryAsync(preloadedBelow);
+						ct.ThrowIfCancellationRequested();
+					}
+				}
+				catch
+				{
+					if (preloadedBelow != null) await DiscardEntryAsync(preloadedBelow);
+					throw;
+				}
+
+				// 完走必須ゾーン
 				var top = _live[_live.Count - 1];
 				var returnStore = new NavigationDataStore();
 				// top が dormant（復元ロード失敗等で _live の末尾が null）の場合は退場フェーズが無い。
@@ -532,14 +584,11 @@ namespace ScreenFramework
 				_live.RemoveAt(_live.Count - 1);
 				_history.PopCurrent();
 
-				var belowIndex = _live.Count - 1;
-				var below = _live[belowIndex];
+				// _live.RemoveAt 後も belowIndex は同一スロットを指す（Count が 1 減るため belowIndex == _live.Count - 1）
 				bool belowReappears;
-				if (below == null)
+				if (preloadedBelow != null)
 				{
-					var belowId = _history[belowIndex];
-					// 復元 load は Exit より後 = 完走必須ゾーン。Load hook も Commit で呼ぶ。
-					below = await CreateAndPreloadAsync(belowId, pushStore: new NavigationDataStore(), ctx, effect, EffectZone.Commit, cacheOverride: null, safeCt);
+					below = preloadedBelow;
 					// 復元画面の modal / blocker も push 時と同じ規則で再構成する（Stack モードで Edit 挿入された
 					// dormant 行が blocker なしで最上段へ戻らないように）。blocker は view より先に親付けして下に敷く。
 					below.Modal = ResolveModal(null);
@@ -554,8 +603,8 @@ namespace ScreenFramework
 				}
 				else if (below.Suspended)
 				{
+					// OnResume は退場前のロールバック可能ゾーンで済んでいる。ここでは表示に戻すだけ。
 					below.View.SetActive(true);
-					await GuardedHook(() => below.Presenter.OnResume(safeCt));
 					below.Suspended = false;
 					belowReappears = true;
 				}
@@ -565,12 +614,17 @@ namespace ScreenFramework
 					belowReappears = false;
 				}
 
+				// 復帰した画面のアニメ前に Sorting を確定させる。
+				ReflowCanvasSorting();
+
+				// Stack モードでは下画面は非表示にしていないため OnBeforeShow / OnAfterShow は呼ばない。
+				// Effect の hook は遷移演出を完走させるために常に実行する。
 				await WhenBoth(
-					GuardedHook(() => below.Presenter.OnBeforeShow(returnStore, ctx, safeCt)),
+					belowReappears ? GuardedHook(() => below.Presenter.OnBeforeShow(returnStore, ctx, safeCt)) : UniTask.CompletedTask,
 					effect?.OnBeforeShow(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
 				await RunEnterAsync(below, safeCt, playViewEnter: belowReappears);
 				await WhenBoth(
-					GuardedHook(() => below.Presenter.OnAfterShow(returnStore, ctx, safeCt)),
+					belowReappears ? GuardedHook(() => below.Presenter.OnAfterShow(returnStore, ctx, safeCt)) : UniTask.CompletedTask,
 					effect?.OnAfterShow(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
 			}
 			finally
@@ -648,12 +702,17 @@ namespace ScreenFramework
 						belowReappears = false;
 					}
 
+					// 復帰した画面のアニメ前に Sorting を確定させる。
+					ReflowCanvasSorting();
+
+					// Stack モードでは下画面は非表示にしていないため OnBeforeShow / OnAfterShow は呼ばない。
+					// Effect の hook は遷移演出を完走させるために常に実行する。
 					await WhenBoth(
-						GuardedHook(() => below.Presenter.OnBeforeShow(returnStore, ctx, safeCt)),
+						belowReappears ? GuardedHook(() => below.Presenter.OnBeforeShow(returnStore, ctx, safeCt)) : UniTask.CompletedTask,
 						effect?.OnBeforeShow(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
 					await RunEnterAsync(below, safeCt, playViewEnter: belowReappears);
 					await WhenBoth(
-						GuardedHook(() => below.Presenter.OnAfterShow(returnStore, ctx, safeCt)),
+						belowReappears ? GuardedHook(() => below.Presenter.OnAfterShow(returnStore, ctx, safeCt)) : UniTask.CompletedTask,
 						effect?.OnAfterShow(EffectZone.Commit, safeCt) ?? UniTask.CompletedTask);
 				}
 				else if (effect != null)
@@ -827,8 +886,9 @@ namespace ScreenFramework
 		/// <summary>
 		/// プレハブ Load + presenter.OnBeforeLoad/OnAfterLoad を並列で走らせる。
 		/// effect が non-null なら effect の同名 hook も並列で実行する（個別 try/catch は EffectRunner 側）。
-		/// <paramref name="loadZone"/> は Effect の Load hook の例外時挙動を決める。Push/Replace の新規 load は
-		/// <see cref="EffectZone.Rollback"/>、Pop/Close の復元 load は Exit 後なので <see cref="EffectZone.Commit"/>。
+		/// <paramref name="loadZone"/> は Effect の Load hook の例外時挙動を決める。Push/Replace の新規 load と
+		/// Pop の復元 load は Exit 前（ロールバック可能）なので <see cref="EffectZone.Rollback"/>。
+		/// CloseTop の復元 load は Exit 後（完走必須）なので <see cref="EffectZone.Commit"/>。
 		/// </summary>
 		async UniTask<LiveEntry> CreateAndPreloadAsync(IScreenIdentifier id, NavigationDataStore pushStore, ITransitionContext ctx, EffectRunner effect, EffectZone loadZone, ScreenCacheMode? cacheOverride, CancellationToken ct)
 		{
@@ -847,7 +907,7 @@ namespace ScreenFramework
 				// 並列起動: Presenter.OnBeforeLoad / handle.Load / Effect.OnBeforeLoad。
 				// Preserve は片方が先に失敗した場合に catch 側で互いの決着を待ち直すため
 				// （UniTask は通常 1 回しか await できない）。
-				loadTask = handle.Load(progress: null, ct).Preserve();
+				loadTask = handle.Load(_services.InstantiationStagingRoot, progress: null, ct).Preserve();
 				loadStarted = true;
 				preloadTask = presenter.OnBeforeLoad(pushStore, ctx, ct).Preserve();
 				preloadStarted = true;
@@ -1020,6 +1080,11 @@ namespace ScreenFramework
 			{
 				CleanupDetachedEntry(removed);
 			}
+
+			// 同期適用（遷移外の Edit）はここが唯一の reflow 機会。下行の挿入・除去で残り行の
+			// スタック index がずれるため、最終形に合わせて Sorting を振り直す。
+			// （遷移中に遅延された Edit は Run.finally の reflow でも再度カバーされる＝冪等）
+			ReflowCanvasSorting();
 		}
 
 		/// <summary>
@@ -1068,6 +1133,8 @@ namespace ScreenFramework
 		{
 			entry.View.SetParent(_config.Container.Root);
 			entry.View.SetActive(true);
+			// 入場アニメ（PlayEnter）より前に Sorting を確定させる（被さる側が正しく最前面で演出されるように）。
+			ReflowCanvasSorting();
 
 			// OnBeforeShow / OnAfterShow には同じ push payload を渡す（後者だけ空、という非対称を解消）。
 			var payload = entry.PushPayload;
@@ -1132,19 +1199,56 @@ namespace ScreenFramework
 		GameObject CreateModalBlocker(Transform parent)
 		{
 			if (parent == null) return null;
+			// コンテナ自身は Canvas を持たない（描画順は各画面 Canvas で制御する）ため、blocker は
+			// 自前の Canvas + GraphicRaycaster を持って独立描画する。Sorting は ReflowCanvasSorting が
+			// 所有 entry の直下（order-1）に配置する。
 			var go = new GameObject("ScreenFramework.ModalBlocker",
-				typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+				typeof(RectTransform), typeof(Canvas), typeof(GraphicRaycaster), typeof(CanvasRenderer), typeof(Image));
 			var rt = (RectTransform)go.transform;
 			rt.SetParent(parent, worldPositionStays: false);
 			rt.anchorMin = Vector2.zero;
 			rt.anchorMax = Vector2.one;
 			rt.offsetMin = Vector2.zero;
 			rt.offsetMax = Vector2.zero;
-			rt.SetAsLastSibling();
 			var img = go.GetComponent<Image>();
 			img.color = new Color(0f, 0f, 0f, 0f);
 			img.raycastTarget = true;
 			return go;
+		}
+
+		/// <summary>
+		/// コンテナ内の loaded entry を <c>_live</c> のスタック順に走査し、各 View の Canvas と
+		/// modal blocker に Sorting Layer / Order を振り直す。order = BaseOrder + (スタック index) * OrderStep。
+		/// 画面の入場・退場・並び替えのたびに呼ぶ。未変化の代入は View / blocker 側でスキップされる（冪等）。
+		/// </summary>
+		void ReflowCanvasSorting()
+		{
+			var container = _config.Container;
+			if (container == null) return;
+			var camera = container.RenderCamera;
+			var layerId = container.SortingLayerId;
+			var baseOrder = container.BaseOrder;
+			var step = container.OrderStep;
+			for (var i = 0; i < _live.Count; i++)
+			{
+				var entry = _live[i];
+				if (entry == null) continue;   // dormant 行は描画対象が無い
+				var order = baseOrder + i * step;
+				entry.View?.ApplyCanvasSorting(camera, layerId, order);
+				// blocker は所有 entry の直下に敷く（step=10 の隙間に収まる）。
+				ApplyBlockerSorting(entry.ModalBlocker, camera, layerId, order - 1);
+			}
+		}
+
+		static void ApplyBlockerSorting(GameObject blocker, Camera camera, int layerId, int order)
+		{
+			if (blocker == null) return;
+			var canvas = blocker.GetComponent<Canvas>();
+			if (canvas == null) return;
+			if (canvas.renderMode != RenderMode.ScreenSpaceCamera) canvas.renderMode = RenderMode.ScreenSpaceCamera;
+			if (canvas.worldCamera != camera) canvas.worldCamera = camera;
+			if (canvas.sortingLayerID != layerId) canvas.sortingLayerID = layerId;
+			if (canvas.sortingOrder != order) canvas.sortingOrder = order;
 		}
 
 		void DestroyBlockerIfAny(LiveEntry entry)

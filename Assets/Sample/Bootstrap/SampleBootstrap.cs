@@ -18,7 +18,7 @@ namespace Sample
 		[SerializeField] ScreenContainer _pageContainer;
 		[SerializeField] ScreenContainer _dialogContainer;
 		[SerializeField] ScreenContainer _sysDialogContainer;
-		[SerializeField] Transform _effectRoot;
+		[SerializeField] EffectHost _effectHost;
 		[SerializeField] EffectRegistry _pageEffectRegistry;
 		[SerializeField] bool _startWithProfile;
 
@@ -40,7 +40,7 @@ namespace Sample
 
 			var setup = SampleScreenLayers.Create(
 				_pageContainer, _dialogContainer, _sysDialogContainer,
-				_effectRoot, _pageEffectRegistry);
+				_effectHost, _pageEffectRegistry);
 
 			ScreenNavigator.Initialize(registry, setup);
 

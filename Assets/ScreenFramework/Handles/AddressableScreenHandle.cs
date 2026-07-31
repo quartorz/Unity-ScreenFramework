@@ -21,9 +21,13 @@ namespace ScreenFramework
 			_key = key ?? throw new ArgumentNullException(nameof(key));
 		}
 
-		public async UniTask<IScreenViewInstance> Load(IProgress<float> progress, CancellationToken ct)
+		public async UniTask<IScreenViewInstance> Load(Transform stagingParent, IProgress<float> progress, CancellationToken ct)
 		{
-			_handle = Addressables.InstantiateAsync(_key);
+			// 非アクティブな staging 親の下で生成し、描画されないまま受け取る。Navigator が SetParent/SetActive で
+			// 見せるまでチラつかせない（staging が無い場合は従来どおりシーン直下に生成）。
+			_handle = stagingParent != null
+				? Addressables.InstantiateAsync(_key, stagingParent)
+				: Addressables.InstantiateAsync(_key);
 			while (!_handle.IsDone)
 			{
 				progress?.Report(_handle.PercentComplete);
@@ -34,8 +38,9 @@ namespace ScreenFramework
 				throw new InvalidOperationException($"Failed to load Addressable: {_key}");
 			}
 			_instance = _handle.Result;
-			// Instantiate 直後は active で scene root に出ているため、Navigator が SetParent/SetActive で
-			// 見せるまでの間 presenter 未配線のまま Awake/OnEnable/Update が走らないよう即座に隠す。
+			// staging 親の下では activeInHierarchy=false なので Awake/OnEnable はまだ走っていない。
+			// 本来の親へ移しても見えないよう activeSelf も落としておき、Navigator が SetParent/SetActive で
+			// 見せるまで（presenter 配線後）Awake/OnEnable/Update を走らせない。
 			if (_instance != null && _instance.activeSelf) _instance.SetActive(false);
 			return new PrefabScreenViewInstance(_instance);
 		}
@@ -82,7 +87,16 @@ namespace ScreenFramework
 
 		public void SetParent(Transform parent)
 		{
-			if (_go != null) _go.transform.SetParent(parent, worldPositionStays: false);
+			if (_go == null) return;
+			_go.transform.SetParent(parent, worldPositionStays: false);
+
+			if (_go.transform is RectTransform rt)
+			{
+				rt.anchorMin = Vector2.zero;
+				rt.anchorMax = Vector2.one;
+				rt.sizeDelta = Vector2.zero;
+				rt.anchoredPosition = Vector2.zero;
+			}
 		}
 
 		public T As<T>() where T : class
@@ -90,6 +104,13 @@ namespace ScreenFramework
 			if (_go == null) return null;
 			if (typeof(T) == typeof(GameObject)) return _go as T;
 			return _go.GetComponentInChildren<T>(true);
+		}
+
+		public void ApplyCanvasSorting(Camera camera, int sortingLayerId, int order)
+		{
+			if (_go == null) return;
+			var controller = _go.GetComponentInChildren<IScreenCanvasController>(true);
+			controller?.ApplyCanvasSorting(camera, sortingLayerId, order);
 		}
 	}
 }

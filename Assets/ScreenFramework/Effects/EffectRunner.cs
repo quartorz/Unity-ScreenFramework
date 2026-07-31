@@ -29,7 +29,8 @@ namespace ScreenFramework
 	internal sealed class EffectRunner
 	{
 		readonly AssetReferenceGameObject _prefabRef;
-		readonly Transform _parent;
+		readonly IEffectHost _host;
+		readonly Transform _stagingParent;
 		readonly ITransitionContext _ctx;
 
 		ScreenEffect _instance;
@@ -37,13 +38,16 @@ namespace ScreenFramework
 		AsyncOperationHandle<GameObject> _handle;
 		bool _disabled;          // 例外発生後の以降 hook skip 用
 		bool _ownsHandle;        // InstantiateAsync で取った handle を ReleaseInstance で返す必要があるか
+		int _leasedOrder;        // host から借りた Sorting Order
+		bool _hasLease;          // _leasedOrder を返却すべきか（lease 済みかつ未返却）
 
 		public bool IsAlive => _instance != null;
 
-		public EffectRunner(AssetReferenceGameObject prefabRef, Transform parent, ITransitionContext ctx)
+		public EffectRunner(AssetReferenceGameObject prefabRef, IEffectHost host, Transform stagingParent, ITransitionContext ctx)
 		{
 			_prefabRef = prefabRef;
-			_parent = parent;
+			_host = host;
+			_stagingParent = stagingParent;
 			_ctx = ctx;
 		}
 
@@ -56,7 +60,10 @@ namespace ScreenFramework
 		{
 			try
 			{
-				_handle = _prefabRef.InstantiateAsync(_parent);
+				// 非アクティブな staging 親の下で生成し、描画されないまま受け取る。
+				_handle = _stagingParent != null
+					? _prefabRef.InstantiateAsync(_stagingParent)
+					: _prefabRef.InstantiateAsync(_host.Root);
 				_ownsHandle = true;
 				while (!_handle.IsDone)
 				{
@@ -74,6 +81,15 @@ namespace ScreenFramework
 					return;
 				}
 				_instanceGo = go;
+				// 走り始めた時点で host から order を借り、Canvas に camera / Sorting を流し込む。
+				// 返却は teardown の単一経路 DestroyNow で行う。
+				_leasedOrder = _host.LeaseOrder();
+				_hasLease = true;
+				ApplyCanvasSorting(go, _leasedOrder);
+				// 設定が済んでから本来の親（Effect オーバーレイ）へ移し、ここで初めて見せる。
+				// これでチラつき無しに、正しい camera / order で描画が始まる。
+				go.transform.SetParent(_host.Root, worldPositionStays: false);
+				if (!go.activeSelf) go.SetActive(true);
 				_instance = go.GetComponent<ScreenEffect>();
 				if (_instance == null)
 				{
@@ -161,6 +177,25 @@ namespace ScreenFramework
 			}
 		}
 
+		/// <summary>
+		/// Effect の root Canvas に host のカメラ / Sorting を流し込む。画面・modal blocker と同じく
+		/// Effect prefab の Canvas は ScreenSpaceCamera 前提だがカメラはシーン依存で prefab に焼けないため、
+		/// Instantiate 直後にここで注入する。order は host が採番した重複しない値。
+		/// </summary>
+		void ApplyCanvasSorting(GameObject go, int order)
+		{
+			var canvas = go.GetComponent<Canvas>();
+			if (canvas == null)
+			{
+				Debug.LogWarning($"[ScreenFramework] Effect prefab '{go.name}' has no root Canvas. Camera/sorting not applied.");
+				return;
+			}
+			if (canvas.renderMode != RenderMode.ScreenSpaceCamera) canvas.renderMode = RenderMode.ScreenSpaceCamera;
+			if (canvas.worldCamera != _host.RenderCamera) canvas.worldCamera = _host.RenderCamera;
+			if (canvas.sortingLayerID != _host.SortingLayerId) canvas.sortingLayerID = _host.SortingLayerId;
+			if (canvas.sortingOrder != order) canvas.sortingOrder = order;
+		}
+
 		void Disable(string reason)
 		{
 			Debug.LogWarning($"[ScreenFramework] {reason}. Effect disabled, transition continues.");
@@ -185,6 +220,12 @@ namespace ScreenFramework
 
 		void DestroyNow()
 		{
+			// 借りた order を返却（lease は instantiate 成功時のみ立つので _host は非 null が保証される）。
+			if (_hasLease)
+			{
+				_host.ReleaseOrder(_leasedOrder);
+				_hasLease = false;
+			}
 			if (_instanceGo != null)
 			{
 				if (_ownsHandle && _handle.IsValid())

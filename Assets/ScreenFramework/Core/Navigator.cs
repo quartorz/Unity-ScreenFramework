@@ -27,6 +27,9 @@ namespace ScreenFramework
 		IScreenIdentifier Current { get; }
 		bool IsTransitioning { get; }
 
+		/// <summary>スタック最上段のエントリ。空なら null。</summary>
+		IScreenEntry TopEntry { get; }
+
 		/// <summary>
 		/// 画面を Push する。完了後、その画面のエントリを返す。
 		/// チュートリアル等で Presenter インスタンスを後から操作したい場合や、

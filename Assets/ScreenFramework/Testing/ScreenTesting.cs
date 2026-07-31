@@ -131,6 +131,7 @@ namespace ScreenFramework
 			public void SetActive(bool active) { /* no-op */ }
 			public void SetParent(Transform parent) { /* no-op */ }
 			public T As<T>() where T : class => _obj as T;
+			public void ApplyCanvasSorting(Camera camera, int sortingLayerId, int order) { /* no-op */ }
 		}
 	}
 }

@@ -18,10 +18,11 @@ namespace ScreenFramework
 		public IEffectRegistry Registry { get; init; }
 
 		/// <summary>
-		/// Effect prefab を Instantiate する親 Transform。Registry を渡す場合は必須。
-		/// シーン上の Canvas 配下に置いた空の Transform を渡す前提。
+		/// 遷移演出が乗る共有オーバーレイ。Registry を渡す場合は必須。Effect prefab の親・描画カメラ・
+		/// Sorting Layer を提供し、order を採番する。同じ高さのレイヤー（例: Page/Dialog）には<b>同一インスタンス</b>を
+		/// 渡してよく、その場合は host が order を一元採番して Effect 同士の衝突を防ぐ。
 		/// </summary>
-		public Transform EffectRoot { get; init; }
+		public IEffectHost EffectHost { get; init; }
 	}
 
 	public sealed class ScreenLayerSetup

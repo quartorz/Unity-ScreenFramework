@@ -15,7 +15,7 @@ namespace Sample
 			ScreenContainer pageContainer,
 			ScreenContainer dialogContainer,
 			ScreenContainer sysDialogContainer,
-			Transform effectRoot,
+			IEffectHost effectHost,
 			EffectRegistry pageEffectRegistry)
 		{
 			return new ScreenLayerSetup
@@ -28,7 +28,7 @@ namespace Sample
 					StackInputPolicy = StackInputPolicy.BlockUnderlying,
 					DefaultModal = true,
 					Registry = pageEffectRegistry,
-					EffectRoot = effectRoot,
+					EffectHost = effectHost,
 				},
 				Dialog = new ScreenLayerConfig
 				{

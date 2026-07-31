@@ -15,14 +15,46 @@ namespace ScreenFramework
 		// 6 hook は遷移ごとの ITransitionContext を受け取る。Effect と同じ ctx を共有するので、
 		// Presenter から ctx.PublishStage / ctx.WaitForStage で Effect と細粒度連携できる。
 		// reader/writer はフェーズ固有の bag（Pop の returnStore 等）で、ctx.Reader/Writer とは別物なので両方渡す。
+
+		/// <summary>
+		/// <para>画面ロード前でViewはまだ存在しない</para>
+		/// <para>メソッド内で例外を投げたり、どこかで<see cref="InterruptPriority.Preempt">Preempt</see>な遷移を行うと遷移がキャンセルされる</para>
+		/// </summary>
 		UniTask OnBeforeLoad(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
+		/// <summary>
+		/// <para>画面ロード後、Viewを表示する前</para>
+		/// <para>メソッド内で例外を投げたり、どこかで<see cref="InterruptPriority.Preempt">Preempt</see>な遷移を行うと遷移がキャンセルされる</para>
+		/// </summary>
 		UniTask OnAfterLoad(IScreenViewInstance view, INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
+		/// <summary>
+		/// <para>画面ロード後、Viewを表示する前</para>
+		/// <para>メソッド内で例外を投げたりしても遷移を止めることはできない</para>
+		/// </summary>
 		UniTask OnBeforeShow(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
+		/// <summary>
+		/// <para>Viewを表示したあと</para>
+		/// <para>メソッド内で例外を投げたりしても遷移を止めることはできない</para>
+		/// </summary>
 		UniTask OnAfterShow(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
+		/// <summary>
+		/// 上に別の画面が重なって、キャッシュされたり破棄されたりする前
+		/// </summary>
 		UniTask OnBeforeHide(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
+		/// <summary>
+		/// 上に別の画面が重なって、退場アニメーションが再生されて、Viewがキャッシュされたり破棄されたりしたあと
+		/// </summary>
 		UniTask OnAfterHide(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
+		/// <summary>
+		/// <see cref="ScreenCacheMode"/>が<see cref="ScreenCacheMode.KeepOnCover">KeepOnCover</see>の画面がキャッシュされて、<see cref="OnAfterHide"/>が呼ばれたあと
+		/// </summary>
 		UniTask OnSuspend(CancellationToken ct) => UniTask.CompletedTask;
+		/// <summary>
+		/// <see cref="ScreenCacheMode"/>が<see cref="ScreenCacheMode.KeepOnCover">KeepOnCover</see>の画面が再表示されるとき
+		/// </summary>
 		UniTask OnResume(CancellationToken ct) => UniTask.CompletedTask;
+		/// <summary>
+		/// <see cref="ScreenCacheMode"/>が<see cref="ScreenCacheMode.DestroyOnCover">DestroyOnCover</see>のViewが破棄されたあと
+		/// </summary>
 		UniTask OnAfterUnload(INavigationDataWriter writer, CancellationToken ct) => UniTask.CompletedTask;
 
 		/// <summary>Navigator が生成直後にサービスバンドルを差し込む。既定は no-op。</summary>
@@ -30,53 +62,23 @@ namespace ScreenFramework
 	}
 
 	/// <summary>
-	/// View を Input / Output で分離して保持する Presenter 基底。
+	/// View を Input / Output で分離して保持する Presenter 基底（小〜中画面用）。
 	/// Presenter は <see cref="In"/> から購読・読み取り、<see cref="Out"/> へ呼び出し・書き込み。
 	/// MockGenerator が生成する IXxxInput / IXxxOutput を TInput / TOutput に指定する想定。
 	/// </summary>
-	public abstract class ScreenPresenter<TInput, TOutput> : IScreenPresenter
+	public abstract class ScreenPresenter<TInput, TOutput> : ScreenPresenterBase<TInput, TOutput>, IScreenPresenter
 		where TInput : class
 		where TOutput : class
 	{
 		protected TInput  In  { get; private set; }
 		protected TOutput Out { get; private set; }
 
-		/// <summary>Navigator から注入される共通サービス。プロジェクト基底で型付きに細める想定。</summary>
-		protected ScreenServices Services { get; private set; }
-
-		void IScreenPresenter.AssignServices(ScreenServices services) => Services = services;
-
-		UniTask IScreenPresenter.OnInitialize(CancellationToken ct) => OnInitialize(ct);
-
-		UniTask IScreenPresenter.OnBeforeLoad(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct)
-			=> OnBeforeLoad(reader, ctx, ct);
-
+		// View を取り込んで In/Out を公開するため IScreenPresenter.OnAfterLoad を再実装する。
 		UniTask IScreenPresenter.OnAfterLoad(IScreenViewInstance view, INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct)
 		{
 			In  = view.As<TInput>();
 			Out = view.As<TOutput>();
 			return OnAfterLoad(reader, ctx, ct);
 		}
-
-		UniTask IScreenPresenter.OnBeforeShow(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => OnBeforeShow(reader, ctx, ct);
-		UniTask IScreenPresenter.OnAfterShow(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => OnAfterShow(reader, ctx, ct);
-		UniTask IScreenPresenter.OnBeforeHide(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct) => OnBeforeHide(writer, ctx, ct);
-		UniTask IScreenPresenter.OnAfterHide(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct) => OnAfterHide(writer, ctx, ct);
-		UniTask IScreenPresenter.OnSuspend(CancellationToken ct) => OnSuspend(ct);
-		UniTask IScreenPresenter.OnResume(CancellationToken ct) => OnResume(ct);
-		UniTask IScreenPresenter.OnAfterUnload(INavigationDataWriter writer, CancellationToken ct) => OnAfterUnload(writer, ct);
-
-		/// <summary>Model の構築など、Services を要するインスタンス初期化用。AssignServices 後・OnBeforeLoad 前に一度だけ呼ばれる。</summary>
-		protected virtual UniTask OnInitialize(CancellationToken ct) => UniTask.CompletedTask;
-
-		protected virtual UniTask OnBeforeLoad(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
-		protected virtual UniTask OnAfterLoad(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
-		protected virtual UniTask OnBeforeShow(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
-		protected virtual UniTask OnAfterShow(INavigationDataReader reader, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
-		protected virtual UniTask OnBeforeHide(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
-		protected virtual UniTask OnAfterHide(INavigationDataWriter writer, ITransitionContext ctx, CancellationToken ct) => UniTask.CompletedTask;
-		protected virtual UniTask OnSuspend(CancellationToken ct) => UniTask.CompletedTask;
-		protected virtual UniTask OnResume(CancellationToken ct) => UniTask.CompletedTask;
-		protected virtual UniTask OnAfterUnload(INavigationDataWriter writer, CancellationToken ct) => UniTask.CompletedTask;
 	}
 }

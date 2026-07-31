@@ -19,7 +19,7 @@ namespace Sample.Debug
 		[SerializeField] ScreenContainer _pageContainer;
 		[SerializeField] ScreenContainer _dialogContainer;
 		[SerializeField] ScreenContainer _sysDialogContainer;
-		[SerializeField] Transform _effectRoot;
+		[SerializeField] EffectHost _effectHost;
 		[SerializeField] EffectRegistry _pageEffectRegistry;
 
 		// SampleBootstrap と同じく bundle 常駐用に field で保持。
@@ -42,7 +42,7 @@ namespace Sample.Debug
 
 			var setup = SampleScreenLayers.Create(
 				_pageContainer, _dialogContainer, _sysDialogContainer,
-				_effectRoot, _pageEffectRegistry);
+				_effectHost, _pageEffectRegistry);
 
 			ScreenNavigator.Initialize(registry, setup);
 			_effectWarmer.WarmDefaults(_pageEffectRegistry).Forget();

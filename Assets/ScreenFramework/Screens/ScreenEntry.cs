@@ -28,5 +28,12 @@ namespace ScreenFramework
 		/// </summary>
 		public static T As<T>(this IScreenEntry entry) where T : class, IScreenPresenter
 			=> entry?.Presenter as T;
+
+		/// <summary>
+		/// IsAlive が false になるまで待つ。既に false なら即完了。
+		/// Pop / Cover+Destroy など、閉じられる経路を問わず必ず完了する。
+		/// </summary>
+		public static UniTask WaitClosedAsync(this IScreenEntry entry, CancellationToken ct = default)
+			=> entry == null ? UniTask.CompletedTask : UniTask.WaitWhile(() => entry.IsAlive, cancellationToken: ct);
 	}
 }

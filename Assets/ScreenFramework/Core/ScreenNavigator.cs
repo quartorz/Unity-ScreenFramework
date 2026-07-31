@@ -11,6 +11,9 @@ namespace ScreenFramework
 		public static IScreenNavigator Dialog { get; internal set; }
 		public static IScreenNavigator SystemDialog { get; internal set; }
 
+		// View / Effect 生成時の staging 親を所有する services。Shutdown 時に staging を破棄するために保持する。
+		static ScreenServices _services;
+
 		internal static IEnumerable<IScreenNavigator> All
 		{
 			get
@@ -45,6 +48,7 @@ namespace ScreenFramework
 			Page = page;
 			Dialog = dialog;
 			SystemDialog = systemDialog;
+			_services = services;
 		}
 
 		/// <summary>
@@ -66,12 +70,34 @@ namespace ScreenFramework
 			Page = null;
 			Dialog = null;
 			SystemDialog = null;
+			var services = _services;
+			_services = null;
 
 			var tasks = new List<UniTask>(3);
 			if (page != null) tasks.Add(page.DismissAll());
 			if (dialog != null) tasks.Add(dialog.DismissAll());
 			if (systemDialog != null) tasks.Add(systemDialog.DismissAll());
-			return UniTask.WhenAll(tasks);
+			// staging 親は退場演出の完了後に破棄する（畳み中の未表示プリロードが配下にいる可能性があるため）。
+			return CompleteShutdownAsync(tasks, services);
+		}
+
+		/// <summary>
+		/// ホストシーンが単独 LoadScene で破棄され、レイヤーの container/GameObject が既に消えている場合に、
+		/// 退場演出（DismissAll）を試みず static 参照のみ同期で null へ戻す。直後の <see cref="Initialize"/> を可能にする。
+		/// 破棄済みオブジェクトへ触れないため、Shutdown と違い安全に呼べる。未初期化なら no-op。
+		/// </summary>
+		public static void ResetForSceneReload()
+		{
+			Page = null;
+			Dialog = null;
+			SystemDialog = null;
+			_services = null;
+		}
+
+		static async UniTask CompleteShutdownAsync(List<UniTask> dismissTasks, ScreenServices services)
+		{
+			try { await UniTask.WhenAll(dismissTasks); }
+			finally { services?.ReleaseInstantiationStagingRoot(); }
 		}
 
 		/// <summary>テストでの差し替え等用。</summary>

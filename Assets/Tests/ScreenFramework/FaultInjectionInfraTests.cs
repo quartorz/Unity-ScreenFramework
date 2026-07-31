@@ -413,7 +413,7 @@ namespace Tests.ScreenFramework
 			// commit ゾーンの hook が Redirect を発行した直後に throw しても、
 			// 現在の遷移は完走し(吸収)、リダイレクトはその後に実行される。
 			SetupNavigator();
-			LogAssert.Expect(LogType.Exception, new Regex("fault injected at AfterEnter \\(redirect origin\\)"));
+			LogAssert.Expect(LogType.Exception, new Regex("fault injected at AfterShow \\(redirect origin\\)"));
 			var idNext = new MarkerScreenId("Next");
 			var id = new ControllableScreenId(new InstantHandle(), () => new RedirectThenThrowPresenter(idNext));
 

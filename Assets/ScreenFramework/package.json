@@ -1,0 +1,14 @@
+{
+    "name": "red.quart.screen-framework",
+    "version": "0.1.0",
+    "displayName": "Screen Framework",
+    "description": "Layered screen navigation for Unity UI: page / dialog stacks, transition effects, and presenters that can be driven without a scene.\n\nUniTask is a required dependency but cannot be declared here (it is distributed as a git package). Add it to the consuming project's manifest:\n  \"com.cysharp.unitask\": \"https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask\"",
+    "unity": "6000.0",
+    "author": {
+        "name": "quartorz"
+    },
+    "dependencies": {
+        "com.unity.addressables": "2.3.16",
+        "com.unity.ugui": "2.0.0"
+    }
+}
